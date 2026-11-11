@@ -42,7 +42,7 @@ const PaymentModalContent: React.FC = () => {
     setSaleSuccessModalOpen, 
     setLastCompletedTransaction 
   } = useUIStore();
-  const { recordCashSale, cashierName, station } = useShiftStore();
+  const { recordCashSale, recordNonCashSale, cashierName, station } = useShiftStore();
 
   const total = getTotal();
   const [method, setMethod] = useState<PaymentMethod>('cash');
@@ -105,9 +105,11 @@ const PaymentModalContent: React.FC = () => {
       }
     });
 
-    // Record cash drawer movement if cash
+    // Record shift register movement
     if (method === 'cash') {
-      recordCashSale(total);
+      await recordCashSale(total);
+    } else {
+      await recordNonCashSale(method, total);
     }
 
     // Trigger celebration confetti

@@ -1,4 +1,4 @@
-import React, { Component, type ReactNode } from 'react';
+import React, { Component, useEffect, type ReactNode } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopHeader } from './components/layout/TopHeader';
 import { POSTerminal } from './components/pos/POSTerminal';
@@ -22,6 +22,7 @@ import { CashMovementModal } from './components/modals/CashMovementModal';
 import { TransactionDetailsModal } from './components/modals/TransactionDetailsModal';
 
 import { useUIStore } from './store/useUIStore';
+import { useShiftStore } from './store/useShiftStore';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -73,6 +74,10 @@ class ViewErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
 
 export function App() {
   const { activeTab } = useUIStore();
+
+  useEffect(() => {
+    useShiftStore.getState().initShift();
+  }, []);
 
   const renderActiveView = () => {
     switch (activeTab) {

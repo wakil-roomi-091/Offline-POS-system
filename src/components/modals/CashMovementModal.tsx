@@ -18,7 +18,7 @@ export const CashMovementModal: React.FC = () => {
     const amtNum = parseFloat(amount) || 0;
     if (amtNum <= 0) return;
 
-    recordMovement(cashMovementType, amtNum);
+    await recordMovement(cashMovementType, amtNum);
 
     // Save movement to local database
     await db.cashMovements.add({
@@ -94,12 +94,12 @@ export const CashMovementModal: React.FC = () => {
 
           <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex justify-between items-center">
             <span className="text-slate-500">Current Drawer Total:</span>
-            <span className="font-bold text-slate-800 text-sm">${currentCashDrawer.toFixed(2)}</span>
+            <span className="font-bold text-slate-800 text-sm">Rs. {currentCashDrawer.toLocaleString()}</span>
           </div>
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              Movement Amount ($)
+              Movement Amount (Rs.)
             </label>
             <input
               type="number"

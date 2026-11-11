@@ -66,12 +66,25 @@ export interface ShiftRecord {
   closedAt?: number;
   openingFloat: number;
   cashSales: number;
+  cardSales?: number;
+  easypaisaSales?: number;
+  jazzcashSales?: number;
+  otherSales?: number;
+  totalSales?: number;
+  totalTax?: number;
+  totalDiscount?: number;
+  transactionsCount?: number;
   payIns: number;
   payOuts: number;
+  drawerExpenses?: number;
   expectedCash: number;
   actualCash?: number;
   discrepancy?: number;
   status: 'open' | 'closed';
+  denominationsCount?: Record<string, number>;
+  witnessPin?: string;
+  closingNotes?: string;
+  zReportNumber?: string;
 }
 
 export interface CashMovement {

@@ -6,14 +6,14 @@ import { useShiftStore } from '../../store/useShiftStore';
 export const OpeningCashModal: React.FC = () => {
   const { openingCashModalOpen, setOpeningCashModalOpen } = useUIStore();
   const { openShift, cashierName, station } = useShiftStore();
-  const [openingFloat, setOpeningFloat] = useState('200.00');
+  const [openingFloat, setOpeningFloat] = useState('15000');
 
   if (!openingCashModalOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const floatNum = parseFloat(openingFloat) || 0;
-    openShift(floatNum);
+    await openShift(floatNum);
     setOpeningCashModalOpen(false);
   };
 
@@ -54,7 +54,7 @@ export const OpeningCashModal: React.FC = () => {
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              Counted Drawer Starting Cash ($)
+              Counted Drawer Starting Cash (Rs.)
             </label>
             <input
               type="number"

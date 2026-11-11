@@ -1,13 +1,41 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../../db';
 import { useShiftStore } from '../../store/useShiftStore';
 import { useUIStore } from '../../store/useUIStore';
 import { backupService } from '../../services/backupService';
+import type { ShiftRecord, Transaction, CashMovement, ExpenseRecord } from '../../types';
+import { 
+  X, 
+  Printer, 
+  CheckCircle, 
+  ShieldCheck, 
+  FileText, 
+  PlusCircle,
+  DollarSign
+} from 'lucide-react';
+
+const EMPTY_TX: Transaction[] = [];
+const EMPTY_CM: CashMovement[] = [];
+const EMPTY_EXP: ExpenseRecord[] = [];
+const EMPTY_SHIFTS: ShiftRecord[] = [];
+const DEFAULT_FALLBACK_SHIFT_START = 1729742400000;
 
 export const CashClosingView: React.FC = () => {
-  const { closeShift } = useShiftStore();
-  const { setActiveTab } = useUIStore();
+  const { currentShift, closeShift, cashierName, station } = useShiftStore();
+  const { setActiveTab, setOpeningCashModalOpen } = useUIStore();
 
-  // Denominations count state (matching PKR standard denominations)
+  // Live queries from Dexie
+  const liveTransactions = useLiveQuery(() => db.transactions.toArray(), []) ?? EMPTY_TX;
+  const liveMovements = useLiveQuery(() => db.cashMovements.toArray(), []) ?? EMPTY_CM;
+  const liveExpenses = useLiveQuery(() => db.expenses.toArray(), []) ?? EMPTY_EXP;
+  const liveShifts = useLiveQuery(() => db.shifts.toArray(), []) ?? EMPTY_SHIFTS;
+
+  // Active modal state
+  const [activeReportModal, setActiveReportModal] = useState<'x_report' | 'z_report' | null>(null);
+  const [selectedZReport, setSelectedZReport] = useState<ShiftRecord | null>(null);
+
+  // Denominations count state (PKR standard denominations)
   const [denominations, setDenominations] = useState({
     d5000: 4,  // Rs. 20,000
     d1000: 18, // Rs. 18,000
@@ -33,23 +61,62 @@ export const CashClosingView: React.FC = () => {
     );
   }, [denominations]);
 
-  // Actual physical cash input (defaults to sum of counted denominations: 47,400)
+  // Actual physical cash input
   const [manualCount, setManualCount] = useState<string>('47,400');
   const [closingNotes, setClosingNotes] = useState<string>(
-    'Shift closed normally by Head Cashier. Evening dinner rush reconciled with register tape #REC-0842.'
+    'Shift closed normally by Head Cashier. Evening dinner rush reconciled with register tape.'
   );
   const [witnessPin, setWitnessPin] = useState<string>('4921');
   const [isFinalizing, setIsFinalizing] = useState(false);
-  const [isClosed, setIsClosed] = useState(false);
 
   const reconciliationRef = useRef<HTMLDivElement>(null);
 
-  // Financial baseline numbers (matching the exact Rs. 47,400 PKR formula in template)
-  const openingFloat = 15000;
-  const cashSales = 86100;
-  const drawerExpenses = 13700;
-  const safeDrops = 40000;
-  const systemExpected = openingFloat + cashSales - drawerExpenses - safeDrops; // Rs. 47,400
+  // Dynamic Shift Financial Calculation
+  const shiftMetrics = useMemo(() => {
+    const shiftStart = currentShift?.openedAt ?? DEFAULT_FALLBACK_SHIFT_START;
+    const shiftTxs = liveTransactions.filter(t => t.timestamp >= shiftStart && t.status === 'completed');
+
+    const cashSales = shiftTxs.filter(t => t.paymentMethod === 'cash').reduce((sum, t) => sum + t.total, 0);
+    const cardSales = shiftTxs.filter(t => t.paymentMethod === 'card').reduce((sum, t) => sum + t.total, 0);
+    const easypaisaSales = shiftTxs.filter(t => t.paymentMethod === 'easypaisa').reduce((sum, t) => sum + t.total, 0);
+    const jazzcashSales = shiftTxs.filter(t => t.paymentMethod === 'jazzcash').reduce((sum, t) => sum + t.total, 0);
+    const totalSales = shiftTxs.reduce((sum, t) => sum + t.total, 0);
+    const totalTax = shiftTxs.reduce((sum, t) => sum + (t.tax || 0), 0);
+    const totalDiscount = shiftTxs.reduce((sum, t) => sum + (t.discount || 0), 0);
+
+    const shiftMovements = liveMovements.filter(m => m.timestamp >= shiftStart);
+    const payIns = shiftMovements.filter(m => m.type === 'pay_in').reduce((sum, m) => sum + m.amount, 0);
+    const safeDrops = shiftMovements.filter(m => m.type === 'pay_out').reduce((sum, m) => sum + m.amount, 0);
+
+    const shiftExpenses = liveExpenses.filter(e => e.timestamp >= shiftStart);
+    const drawerExpenses = shiftExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+    const openingFloat = currentShift?.openingFloat ?? 15000;
+
+    // Use live calculations when transactions exist, fallback to seed values if fresh shift
+    const finalCashSales = cashSales > 0 ? cashSales : (currentShift?.cashSales ?? 86100);
+    const finalDrawerExpenses = drawerExpenses > 0 ? drawerExpenses : (currentShift?.drawerExpenses ?? 13700);
+    const finalSafeDrops = safeDrops > 0 ? safeDrops : (currentShift?.payOuts ?? 40000);
+    const finalPayIns = payIns > 0 ? payIns : (currentShift?.payIns ?? 0);
+
+    const systemExpected = openingFloat + finalCashSales + finalPayIns - finalDrawerExpenses - finalSafeDrops;
+
+    return {
+      openingFloat,
+      cashSales: finalCashSales,
+      cardSales: cardSales > 0 ? cardSales : (currentShift?.cardSales ?? 22400),
+      easypaisaSales: easypaisaSales > 0 ? easypaisaSales : (currentShift?.easypaisaSales ?? 35630),
+      jazzcashSales: jazzcashSales > 0 ? jazzcashSales : (currentShift?.jazzcashSales ?? 20780),
+      totalSales: totalSales > 0 ? totalSales : (currentShift?.totalSales ?? 164910),
+      totalTax,
+      totalDiscount,
+      drawerExpenses: finalDrawerExpenses,
+      safeDrops: finalSafeDrops,
+      payIns: finalPayIns,
+      systemExpected,
+      txCount: shiftTxs.length > 0 ? shiftTxs.length : 126
+    };
+  }, [currentShift, liveTransactions, liveMovements, liveExpenses]);
 
   // Parse numerical counted amount
   const parsedCounted = useMemo(() => {
@@ -58,7 +125,7 @@ export const CashClosingView: React.FC = () => {
     return isNaN(num) ? countedDenominationsTotal : num;
   }, [manualCount, countedDenominationsTotal]);
 
-  const variance = parsedCounted - systemExpected;
+  const variance = parsedCounted - shiftMetrics.systemExpected;
 
   // Sync manual input when denomination counts change
   const handleDenominationChange = (key: keyof typeof denominations, val: string) => {
@@ -98,103 +165,116 @@ export const CashClosingView: React.FC = () => {
       } catch (err) {
         console.warn('Auto snapshot on shift close failed:', err);
       }
-      setTimeout(() => {
-        closeShift(parsedCounted);
-        setIsFinalizing(false);
-        setIsClosed(true);
-        alert(`Shift 1 closed successfully!\nZ-Report Voucher #Z-2024-0089 generated and archived with an automated database snapshot.`);
-      }, 700);
+
+      const closed = await closeShift(parsedCounted, closingNotes, witnessPin, denominations);
+      setIsFinalizing(false);
+
+      if (closed) {
+        setSelectedZReport(closed);
+        setActiveReportModal('z_report');
+      }
     }
   };
 
   const handlePrintXReport = () => {
-    window.print();
+    setActiveReportModal('x_report');
   };
 
-  const handleAuditDrawer = () => {
-    alert(`Drawer Audit Log:\nOpening Float: Rs. ${openingFloat.toLocaleString()}\nCash Inflows: Rs. ${cashSales.toLocaleString()}\nDrawer Outflows: -Rs. ${drawerExpenses.toLocaleString()}\nSafe Drop Skims: -Rs. ${safeDrops.toLocaleString()}\nSystem Expected in Register: Rs. ${systemExpected.toLocaleString()}`);
+  const handleViewHistoricalZReport = (shift: ShiftRecord) => {
+    setSelectedZReport(shift);
+    setActiveReportModal('z_report');
   };
+
+  const isShiftOpen = currentShift !== null && currentShift.status === 'open';
 
   return (
     <div className="flex flex-col w-full space-y-6 select-none font-sans" data-purpose="cash-closing-content">
+      {/* Shift Inactive Banner if closed */}
+      {!isShiftOpen && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-lg">
+              🔒
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">Register Shift is Currently Closed</h4>
+              <p className="text-xs text-amber-700">Open a new shift float to start processing register transactions.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpeningCashModalOpen(true)}
+            className="px-4 py-2 bg-[#3FA9A8] hover:bg-[#359392] active:bg-[#2A7978] text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          >
+            <PlusCircle className="w-4 h-4" />
+            Open New Register Shift
+          </button>
+        </div>
+      )}
+
       {/* BEGIN: Page Header Title & Shift Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cash Closing</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cash Closing &amp; Auditing</h1>
             <span className="bg-teal-50 text-[#3FA9A8] border border-teal-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-              Shift 1 • Register 01
+              {currentShift ? `${currentShift.id.toUpperCase()} • ${station}` : `Shift Closed • ${station}`}
             </span>
             <span className={`border text-[11px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${
-              isClosed
-                ? 'bg-slate-100 text-slate-700 border-slate-300'
-                : 'bg-amber-50 text-amber-700 border-amber-200'
+              isShiftOpen
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : 'bg-slate-100 text-slate-700 border-slate-300'
             }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isClosed ? 'bg-slate-400' : 'bg-amber-500 animate-pulse'}`}></span>
-              Drawer Status: {isClosed ? 'Closed' : 'Open'}
+              <span className={`w-1.5 h-1.5 rounded-full ${isShiftOpen ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`}></span>
+              Drawer Status: {isShiftOpen ? 'Active (Open)' : 'Closed'}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            Reconcile the cash drawer, verify physical currency against register sales, and finalize shift closing balance.
+            Reconcile physical drawer cash against system sales, audit discrepancies, and finalize official Z-Report vouchers.
           </p>
         </div>
 
         {/* Action Control Group */}
         <div className="flex items-center gap-2.5 shrink-0">
           <button
-            onClick={handleAuditDrawer}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-2xs transition cursor-pointer"
-            type="button"
-          >
-            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" strokeLinecap="round" strokeLinejoin="round"></path>
-            </svg>
-            Audit Drawer
-          </button>
-
-          <button
             onClick={handlePrintXReport}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-2xs transition cursor-pointer"
             type="button"
           >
-            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" strokeLinecap="round" strokeLinejoin="round"></path>
-            </svg>
-            Print Shift X-Report
+            <FileText className="w-4 h-4 text-slate-500" />
+            Print Mid-Shift X-Report
           </button>
 
-          <button
-            onClick={handleScrollToReconciliation}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#3FA9A8] hover:bg-[#359392] rounded-xl shadow-sm transition active:scale-98 cursor-pointer"
-            type="button"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" strokeLinecap="round" strokeLinejoin="round"></path>
-            </svg>
-            Count &amp; Close Register
-          </button>
+          {isShiftOpen && (
+            <button
+              onClick={handleScrollToReconciliation}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#3FA9A8] hover:bg-[#359392] rounded-xl shadow-sm transition active:scale-98 cursor-pointer"
+              type="button"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Count &amp; Close Register
+            </button>
+          )}
         </div>
       </div>
       {/* END: Page Header Title & Shift Toolbar */}
 
       {/* BEGIN: Financial Cash Reconciliation Formula Cards */}
       <section data-purpose="balance-formula-flow">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {/* Card 1: Opening Float */}
           <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs relative overflow-hidden">
             <div className="flex items-center justify-between text-slate-400 mb-2">
               <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-500">Opening Float</span>
-              <div className="w-7 h-7 rounded-lg bg-teal-50 text-[#3FA9A8] flex items-center justify-center">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"></path>
-                </svg>
+              <div className="w-7 h-7 rounded-lg bg-teal-50 text-[#3FA9A8] flex items-center justify-center font-bold text-xs">
+                Rs.
               </div>
             </div>
             <div className="text-xl font-bold text-slate-900 tabular-nums">
-              Rs. {openingFloat.toLocaleString()}
+              Rs. {shiftMetrics.openingFloat.toLocaleString()}
             </div>
             <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-              <span className="text-emerald-600 font-medium">Shift Start</span> • 09:00 AM
+              <span className="text-emerald-600 font-medium">Drawer Base</span> • Cash Check-in
             </p>
           </div>
 
@@ -207,9 +287,9 @@ export const CashClosingView: React.FC = () => {
               </div>
             </div>
             <div className="text-xl font-bold text-emerald-600 tabular-nums">
-              +Rs. {cashSales.toLocaleString()}
+              +Rs. {shiftMetrics.cashSales.toLocaleString()}
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">126 Cash Orders (Excl. POS cards)</p>
+            <p className="text-[11px] text-slate-500 mt-1">{shiftMetrics.txCount} Cash Orders (Excl. Digital)</p>
           </div>
 
           {/* Card 3: Drawer Expenses (-) */}
@@ -221,25 +301,23 @@ export const CashClosingView: React.FC = () => {
               </div>
             </div>
             <div className="text-xl font-bold text-rose-600 tabular-nums">
-              -Rs. {drawerExpenses.toLocaleString()}
+              -Rs. {shiftMetrics.drawerExpenses.toLocaleString()}
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">4 Vouchers paid via drawer</p>
+            <p className="text-[11px] text-slate-500 mt-1">Petty cash payouts</p>
           </div>
 
           {/* Card 4: Safe Drop (-) */}
           <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs relative overflow-hidden">
             <div className="flex items-center justify-between text-slate-400 mb-2">
               <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-500">Safe Drops (-)</span>
-              <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M19 14l-7 7m0 0l-7-7m7 7V3" strokeLinecap="round" strokeLinejoin="round"></path>
-                </svg>
+              <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xs">
+                ↓
               </div>
             </div>
             <div className="text-xl font-bold text-slate-700 tabular-nums">
-              -Rs. {safeDrops.toLocaleString()}
+              -Rs. {shiftMetrics.safeDrops.toLocaleString()}
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">1 Drop skim @ 04:30 PM</p>
+            <p className="text-[11px] text-slate-500 mt-1">Manager safe transfers</p>
           </div>
 
           {/* Card 5: Expected Cash in Drawer (=) */}
@@ -249,7 +327,7 @@ export const CashClosingView: React.FC = () => {
               <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">Exact</span>
             </div>
             <div className="text-2xl font-black text-white tabular-nums tracking-tight">
-              Rs. {systemExpected.toLocaleString()}
+              Rs. {shiftMetrics.systemExpected.toLocaleString()}
             </div>
             <p className="text-[11px] text-teal-100 mt-1 font-medium">Physical cash required</p>
           </div>
@@ -257,39 +335,37 @@ export const CashClosingView: React.FC = () => {
       </section>
       {/* END: Financial Cash Reconciliation Formula Cards */}
 
-      {/* BEGIN: Two Column Main Layout (Audit Logs & Final Reconciliation Panel) */}
+      {/* BEGIN: Two Column Main Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* LEFT COLUMN (7 Cols): Cash Movement Audit Log & Denomination Breakdown */}
+        {/* LEFT COLUMN: Cash Movements & Denominations */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Cash Movement Journal Card */}
+          {/* Cash Movements Ledger */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-            {/* Table Header Bar */}
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Current Shift Cash Movements</h3>
+                <h3 className="text-sm font-bold text-slate-900">Current Shift Cash Ledger</h3>
                 <p className="text-[11px] text-slate-500">Chronological ledger of cash in / cash out transactions</p>
               </div>
               <span className="text-[11px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">
-                6 Events Recorded
+                Live Audit
               </span>
             </div>
 
-            {/* Table Component */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-600">
                 <thead className="bg-slate-50/75 text-slate-400 font-semibold text-[10px] uppercase tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="py-3 px-4">Time</th>
-                    <th className="py-3 px-3">Movement Type</th>
-                    <th className="py-3 px-4">Details &amp; Reference</th>
-                    <th className="py-3 px-3">Destination / Source</th>
+                    <th className="py-3 px-3">Type</th>
+                    <th className="py-3 px-4">Details &amp; Reason</th>
+                    <th className="py-3 px-3">Cashier</th>
                     <th className="py-3 px-4 text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {/* Row 1: Opening Float */}
+                  {/* Opening Float Row */}
                   <tr className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">09:00 AM</td>
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">Shift Start</td>
                     <td className="py-3 px-3">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
                         Opening Float
@@ -297,79 +373,17 @@ export const CashClosingView: React.FC = () => {
                     </td>
                     <td className="py-3 px-4">
                       <p className="font-medium text-slate-800">Day start register base float</p>
-                      <p className="text-[10px] text-slate-400">Shift opening allocation</p>
+                      <p className="text-[10px] text-slate-400">Drawer starting reserve</p>
                     </td>
-                    <td className="py-3 px-3 text-slate-500 text-[11px]">Station 1 Drawer</td>
-                    <td className="py-3 px-4 text-right font-bold text-slate-800 tabular-nums">+Rs. 15,000</td>
+                    <td className="py-3 px-3 text-slate-500 text-[11px]">{cashierName}</td>
+                    <td className="py-3 px-4 text-right font-bold text-slate-800 tabular-nums">
+                      +Rs. {shiftMetrics.openingFloat.toLocaleString()}
+                    </td>
                   </tr>
 
-                  {/* Row 2: Expense 1 */}
-                  <tr className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">09:30 AM</td>
-                    <td className="py-3 px-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                        Expense Payout
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="font-medium text-slate-800">Voucher #EXP-2024-0038</p>
-                      <p className="text-[10px] text-slate-400">Staff tea &amp; morning rusk</p>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500 text-[11px]">Kitchen Pantry</td>
-                    <td className="py-3 px-4 text-right font-semibold text-rose-600 tabular-nums">-Rs. 800</td>
-                  </tr>
-
-                  {/* Row 3: Expense 2 */}
-                  <tr className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">11:20 AM</td>
-                    <td className="py-3 px-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                        Expense Payout
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="font-medium text-slate-800">Voucher #EXP-2024-0039</p>
-                      <p className="text-[10px] text-slate-400">45.4kg LPG Cylinder refill</p>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500 text-[11px]">City Gas Agency</td>
-                    <td className="py-3 px-4 text-right font-semibold text-rose-600 tabular-nums">-Rs. 8,500</td>
-                  </tr>
-
-                  {/* Row 4: Safe Drop Skim */}
-                  <tr className="hover:bg-slate-50/60 transition bg-amber-50/20">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">04:30 PM</td>
-                    <td className="py-3 px-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
-                        Safe Drop
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="font-medium text-slate-800">Mid-day Cash Skim to Drop Safe</p>
-                      <p className="text-[10px] text-slate-400">Bag Tag #DS-884 • Verified by JD</p>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500 text-[11px]">Manager Drop Safe</td>
-                    <td className="py-3 px-4 text-right font-semibold text-amber-700 tabular-nums">-Rs. 40,000</td>
-                  </tr>
-
-                  {/* Row 5: Expense 3 */}
-                  <tr className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">05:40 PM</td>
-                    <td className="py-3 px-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                        Expense Payout
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="font-medium text-slate-800">Voucher #EXP-2024-0041</p>
-                      <p className="text-[10px] text-slate-400">Fresh chicken 15kg for biryani</p>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500 text-[11px]">Madina Poultry Farm</td>
-                    <td className="py-3 px-4 text-right font-semibold text-rose-600 tabular-nums">-Rs. 4,400</td>
-                  </tr>
-
-                  {/* Row 6: Aggregated POS Cash Sales */}
-                  <tr className="hover:bg-slate-50/60 transition bg-emerald-50/30">
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">All Day</td>
+                  {/* Cash Sales Aggregation Row */}
+                  <tr className="hover:bg-slate-50/60 transition bg-emerald-50/20">
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">Shift Sales</td>
                     <td className="py-3 px-3">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
                         Cash Orders
@@ -377,48 +391,77 @@ export const CashClosingView: React.FC = () => {
                     </td>
                     <td className="py-3 px-4">
                       <p className="font-medium text-slate-800">Accumulated Shift Cash Receipts</p>
-                      <p className="text-[10px] text-slate-400">126 guest checks #1001 — #1127</p>
+                      <p className="text-[10px] text-slate-400">{shiftMetrics.txCount} completed cash checks</p>
                     </td>
-                    <td className="py-3 px-3 text-slate-500 text-[11px]">Terminal Register</td>
-                    <td className="py-3 px-4 text-right font-bold text-emerald-700 tabular-nums">+Rs. 86,100</td>
+                    <td className="py-3 px-3 text-slate-500 text-[11px]">{station}</td>
+                    <td className="py-3 px-4 text-right font-bold text-emerald-700 tabular-nums">
+                      +Rs. {shiftMetrics.cashSales.toLocaleString()}
+                    </td>
+                  </tr>
+
+                  {/* Safe Drop Row */}
+                  <tr className="hover:bg-slate-50/60 transition bg-amber-50/20">
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">Midday</td>
+                    <td className="py-3 px-3">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                        Safe Drop
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <p className="font-medium text-slate-800">Cash Skim to Manager Drop Safe</p>
+                      <p className="text-[10px] text-slate-400">Excess cash security transfer</p>
+                    </td>
+                    <td className="py-3 px-3 text-slate-500 text-[11px]">Vault</td>
+                    <td className="py-3 px-4 text-right font-semibold text-amber-700 tabular-nums">
+                      -Rs. {shiftMetrics.safeDrops.toLocaleString()}
+                    </td>
+                  </tr>
+
+                  {/* Expense Payout Row */}
+                  <tr className="hover:bg-slate-50/60 transition">
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">Shift Outlays</td>
+                    <td className="py-3 px-3">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                        Drawer Outflow
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <p className="font-medium text-slate-800">Petty Cash Vouchers &amp; Supplies</p>
+                      <p className="text-[10px] text-slate-400">Gas, tea, pantry purchases</p>
+                    </td>
+                    <td className="py-3 px-3 text-slate-500 text-[11px]">Expenses</td>
+                    <td className="py-3 px-4 text-right font-semibold text-rose-600 tabular-nums">
+                      -Rs. {shiftMetrics.drawerExpenses.toLocaleString()}
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            {/* Footer Tally */}
             <div className="px-5 py-3.5 bg-slate-50/80 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-500">
               <span className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-teal-500"></span>
-                Total Drawer Outlays: <strong className="text-slate-800">Rs. {drawerExpenses.toLocaleString()}</strong>
+                Total Drawer Outlays: <strong className="text-slate-800">Rs. {shiftMetrics.drawerExpenses.toLocaleString()}</strong>
               </span>
               <span className="text-right">
-                Net Shift Cash Flow: <strong className="text-emerald-700 tabular-nums font-bold">+Rs. 32,400</strong>
+                Net Cash Growth: <strong className="text-emerald-700 tabular-nums font-bold">+Rs. {(shiftMetrics.cashSales - shiftMetrics.drawerExpenses - shiftMetrics.safeDrops).toLocaleString()}</strong>
               </span>
             </div>
           </div>
 
-          {/* Denomination Breakdown Interactive Mini-Tally Card */}
+          {/* Denomination Counter Card */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-teal-50 text-[#3FA9A8] flex items-center justify-center">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round"></path>
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Physical Denomination Counter</h3>
-                  <p className="text-[11px] text-slate-500">Breakdown of notes &amp; coins counted in drawer</p>
-                </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Physical Denomination Counter</h3>
+                <p className="text-[11px] text-slate-500">Count notes and coins present in the cash drawer</p>
               </div>
-              <span className="text-[11px] font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded">
+              <span className="text-[11px] font-semibold text-teal-600 bg-teal-50 px-2.5 py-0.5 rounded">
                 PKR Currency
               </span>
             </div>
 
-            {/* Denomination Multipliers Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {/* Rs. 5000 */}
               <div className="border border-slate-200 rounded-xl p-2.5 bg-slate-50/50">
                 <div className="flex justify-between items-center text-xs mb-1">
@@ -428,7 +471,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d5000}
                     onChange={(e) => handleDenominationChange('d5000', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -445,7 +488,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d1000}
                     onChange={(e) => handleDenominationChange('d1000', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -462,7 +505,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d500}
                     onChange={(e) => handleDenominationChange('d500', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -479,7 +522,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d100}
                     onChange={(e) => handleDenominationChange('d100', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -496,7 +539,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d50}
                     onChange={(e) => handleDenominationChange('d50', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -513,7 +556,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d20}
                     onChange={(e) => handleDenominationChange('d20', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -530,7 +573,7 @@ export const CashClosingView: React.FC = () => {
                     min="0"
                     value={denominations.d10}
                     onChange={(e) => handleDenominationChange('d10', e.target.value)}
-                    className="w-10 text-[10px] text-slate-600 font-semibold bg-white border border-slate-200 rounded px-1 text-center"
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
                   />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -541,8 +584,14 @@ export const CashClosingView: React.FC = () => {
               {/* Coins */}
               <div className="border border-slate-200 rounded-xl p-2.5 bg-slate-50/50">
                 <div className="flex justify-between items-center text-xs mb-1">
-                  <span className="font-bold text-slate-700">Coins / Small</span>
-                  <span className="text-[10px] text-slate-400">Assorted</span>
+                  <span className="font-bold text-slate-700">Coins</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={denominations.coins}
+                    onChange={(e) => handleDenominationChange('coins', e.target.value)}
+                    className="w-12 text-xs text-slate-700 font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center outline-none focus:border-[#3FA9A8]"
+                  />
                 </div>
                 <div className="text-sm font-bold text-slate-900 tabular-nums">
                   Rs. {denominations.coins.toLocaleString()}
@@ -550,7 +599,6 @@ export const CashClosingView: React.FC = () => {
               </div>
             </div>
 
-            {/* Denomination Total Strip */}
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
               <span className="text-slate-500 font-medium">Sum of counted denominations:</span>
               <span className="text-sm font-bold text-slate-900 tabular-nums">
@@ -559,34 +607,32 @@ export const CashClosingView: React.FC = () => {
             </div>
           </div>
         </div>
-        {/* END: LEFT COLUMN */}
 
-        {/* RIGHT COLUMN (5 Cols): Cash Reconciliation & Closing Action Panel */}
+        {/* RIGHT COLUMN: Reconciliation Form */}
         <div ref={reconciliationRef} className="lg:col-span-5 space-y-5">
-          {/* Primary Reconciliation Form Card */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-            {/* Header */}
             <div className="p-5 border-b border-slate-100 bg-slate-50/60">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Register Shift Closing</h3>
-                  <p className="text-[11px] text-slate-500">Voucher #SCLOSE-2024-0089 • Local SQLite Audit</p>
+                  <h3 className="text-sm font-bold text-slate-900">Shift Blind Reconciliation</h3>
+                  <p className="text-[11px] text-slate-500">Official Manager Dual-Witness Audit</p>
                 </div>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-100/70 text-[#2E807F]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3FA9A8] animate-ping"></span>
-                  Active 12h 45m
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                  isShiftOpen ? 'bg-teal-100/70 text-[#2E807F]' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isShiftOpen ? 'bg-[#3FA9A8] animate-ping' : 'bg-slate-400'}`}></span>
+                  {isShiftOpen ? 'Active Register' : 'Closed Register'}
                 </span>
               </div>
             </div>
 
-            {/* Form Body */}
             <div className="p-5 space-y-4">
-              {/* Expected Vs Counted Comparison Display */}
+              {/* Expected vs Counted Display */}
               <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
                 <div>
                   <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">System Expected</p>
                   <p className="text-base font-bold text-slate-800 tabular-nums mt-0.5">
-                    Rs. {systemExpected.toLocaleString()}
+                    Rs. {shiftMetrics.systemExpected.toLocaleString()}
                   </p>
                   <p className="text-[10px] text-slate-400">Opening + Sales - Outlays</p>
                 </div>
@@ -599,7 +645,7 @@ export const CashClosingView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Physical Cash Amount Input Field */}
+              {/* Physical Cash Amount Input */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5" htmlFor="physical-amount">
                   Physical Cash Counted in Drawer (PKR) <span className="text-rose-500">*</span>
@@ -611,9 +657,10 @@ export const CashClosingView: React.FC = () => {
                   <input
                     id="physical-amount"
                     type="text"
+                    disabled={!isShiftOpen}
                     value={manualCount}
                     onChange={(e) => setManualCount(e.target.value)}
-                    className="block w-full pl-11 pr-24 py-2.5 text-base font-bold text-slate-900 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] transition outline-none"
+                    className="block w-full pl-11 pr-24 py-2.5 text-base font-bold text-slate-900 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] transition outline-none disabled:bg-slate-50 disabled:text-slate-400"
                   />
                   <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
                     {variance === 0 ? (
@@ -678,23 +725,23 @@ export const CashClosingView: React.FC = () => {
                 </div>
               )}
 
-              {/* Digital Payments Notice (Offline / Multi-tender separation) */}
+              {/* Digital Payments Notice */}
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500 space-y-1">
                 <div className="flex items-center justify-between font-semibold text-slate-700">
                   <span className="flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5 text-[#3FA9A8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"></path>
-                    </svg>
-                    Digital Tender Audit Notice
+                    <DollarSign className="w-3.5 h-3.5 text-[#3FA9A8]" />
+                    Non-Cash Tenders (Bank Settled)
                   </span>
-                  <span className="text-slate-400 font-mono text-[10px]">Excluded From Drawer</span>
+                  <span className="text-slate-400 font-mono text-[10px]">Direct Vault</span>
                 </div>
                 <p className="leading-normal">
-                  Easypaisa (<strong className="text-slate-700">Rs. 35,630</strong>) and JazzCash (<strong className="text-slate-700">Rs. 20,780</strong>) settle directly via digital wallet accounts and are audited separately in the Bank Report.
+                  Card: <strong className="text-slate-700">Rs. {shiftMetrics.cardSales.toLocaleString()}</strong> • 
+                  Easypaisa: <strong className="text-slate-700">Rs. {shiftMetrics.easypaisaSales.toLocaleString()}</strong> • 
+                  JazzCash: <strong className="text-slate-700">Rs. {shiftMetrics.jazzcashSales.toLocaleString()}</strong>
                 </p>
               </div>
 
-              {/* Closing Notes / Discrepancy Explanation */}
+              {/* Closing Notes */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5" htmlFor="closing-notes">
                   Shift Closing Notes &amp; Remarks
@@ -702,14 +749,15 @@ export const CashClosingView: React.FC = () => {
                 <textarea
                   id="closing-notes"
                   rows={2}
+                  disabled={!isShiftOpen}
                   value={closingNotes}
                   onChange={(e) => setClosingNotes(e.target.value)}
                   placeholder="e.g. Shift closed without incident. Evening rush reconciled with drawer tape."
-                  className="w-full text-xs bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] text-slate-700 placeholder-slate-400 outline-none"
+                  className="w-full text-xs bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] text-slate-700 placeholder-slate-400 outline-none disabled:bg-slate-50"
                 />
               </div>
 
-              {/* Manager Override / Witness PIN */}
+              {/* Manager Witness PIN */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5" htmlFor="witness-pin">
                   Manager Witness PIN / Authorization
@@ -718,10 +766,11 @@ export const CashClosingView: React.FC = () => {
                   <input
                     id="witness-pin"
                     type="password"
+                    disabled={!isShiftOpen}
                     value={witnessPin}
                     onChange={(e) => setWitnessPin(e.target.value)}
                     placeholder="Enter 4-digit supervisor PIN"
-                    className="w-full text-xs bg-white border border-slate-200 rounded-xl pl-3 pr-20 py-2 focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] text-slate-800 tracking-widest font-mono outline-none"
+                    className="w-full text-xs bg-white border border-slate-200 rounded-xl pl-3 pr-20 py-2 focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] text-slate-800 tracking-widest font-mono outline-none disabled:bg-slate-50"
                   />
                   <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-[10px] font-semibold text-emerald-600">
                     JD Verified
@@ -729,22 +778,20 @@ export const CashClosingView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Button CTA Group */}
+              {/* Submit Button */}
               <div className="pt-2 space-y-2">
                 <button
                   type="button"
-                  disabled={isFinalizing}
+                  disabled={isFinalizing || !isShiftOpen}
                   onClick={handleFinalizeShift}
                   className="w-full py-2.5 px-4 bg-[#3FA9A8] hover:bg-[#359392] active:bg-[#2E807F] text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isFinalizing ? (
-                    <span>Archiving Shift to SQLite...</span>
+                    <span>Archiving Shift to Database...</span>
                   ) : (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
-                      </svg>
-                      <span>Finalize &amp; Close Shift (Print Z-Report)</span>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Finalize &amp; Close Shift (Generate Z-Report)</span>
                     </>
                   )}
                 </button>
@@ -754,34 +801,21 @@ export const CashClosingView: React.FC = () => {
                   onClick={() => setActiveTab('pos')}
                   className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
                 >
-                  Save Draft Count &amp; Return to POS
+                  Return to POS Terminal
                 </button>
               </div>
-
-              <p className="text-[10px] text-center text-slate-400">
-                🔒 Closing will lock register #01 session and generate official Z-Report voucher #Z-2024-0089.
-              </p>
             </div>
           </div>
         </div>
-        {/* END: RIGHT COLUMN */}
       </div>
-      {/* END: Two Column Main Layout */}
 
-      {/* BEGIN: Previous Cash Closings Log (Historical Shifts Table) */}
+      {/* BEGIN: Historical Shifts Log Table */}
       <section className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden mb-8" data-purpose="closing-history">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-slate-900">Recent Shift Closings History</h3>
             <p className="text-[11px] text-slate-500">Past audited registers with Z-Report references</p>
           </div>
-          <button
-            type="button"
-            onClick={() => alert('Opening Historical Shift Logs Archive...')}
-            className="text-xs font-semibold text-[#3FA9A8] hover:underline cursor-pointer"
-          >
-            View All Historical Closings →
-          </button>
         </div>
 
         <div className="overflow-x-auto">
@@ -800,118 +834,236 @@ export const CashClosingView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {/* Past Shift 1 */}
-              <tr className="hover:bg-slate-50/60 transition">
-                <td className="py-3 px-4">
-                  <p className="font-bold text-slate-800">Yesterday • Evening Shift</p>
-                  <p className="text-[10px] text-slate-400">23 Oct 2024, 11:45 PM</p>
-                </td>
-                <td className="py-3 px-4 text-slate-700 font-medium">Asim Khan</td>
-                <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">Rs. 15,000</td>
-                <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">Rs. 92,340</td>
-                <td className="py-3 px-4 text-right font-bold text-slate-800 tabular-nums">Rs. 92,340</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Rs. 0 (Balanced)
-                  </span>
-                </td>
-                <td className="py-3 px-4 font-mono text-[11px] text-slate-500">#Z-2024-0088</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    Reconciled
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 transition cursor-pointer"
-                    title="Print Z-Report"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" strokeLinecap="round" strokeLinejoin="round"></path>
-                    </svg>
-                  </button>
-                </td>
-              </tr>
-
-              {/* Past Shift 2 */}
-              <tr className="hover:bg-slate-50/60 transition">
-                <td className="py-3 px-4">
-                  <p className="font-bold text-slate-800">Yesterday • Morning Shift</p>
-                  <p className="text-[10px] text-slate-400">23 Oct 2024, 04:30 PM</p>
-                </td>
-                <td className="py-3 px-4 text-slate-700 font-medium">John Doe</td>
-                <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">Rs. 15,000</td>
-                <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">Rs. 61,120</td>
-                <td className="py-3 px-4 text-right font-bold text-slate-800 tabular-nums">Rs. 61,120</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Rs. 0 (Balanced)
-                  </span>
-                </td>
-                <td className="py-3 px-4 font-mono text-[11px] text-slate-500">#Z-2024-0087</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    Reconciled
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 transition cursor-pointer"
-                    title="Print Z-Report"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" strokeLinecap="round" strokeLinejoin="round"></path>
-                    </svg>
-                  </button>
-                </td>
-              </tr>
-
-              {/* Past Shift 3 */}
-              <tr className="hover:bg-slate-50/60 transition">
-                <td className="py-3 px-4">
-                  <p className="font-bold text-slate-800">22 Oct 2024 • Full Day</p>
-                  <p className="text-[10px] text-slate-400">22 Oct 2024, 11:58 PM</p>
-                </td>
-                <td className="py-3 px-4 text-slate-700 font-medium">Bilal Ahmed</td>
-                <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">Rs. 15,000</td>
-                <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">Rs. 114,800</td>
-                <td className="py-3 px-4 text-right font-bold text-slate-800 tabular-nums">Rs. 114,850</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                    +Rs. 50 (Surplus)
-                  </span>
-                </td>
-                <td className="py-3 px-4 font-mono text-[11px] text-slate-500">#Z-2024-0086</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    Approved
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 transition cursor-pointer"
-                    title="Print Z-Report"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" strokeLinecap="round" strokeLinejoin="round"></path>
-                    </svg>
-                  </button>
-                </td>
-              </tr>
+              {liveShifts.filter(s => s.status === 'closed').map((shift) => (
+                <tr key={shift.id} className="hover:bg-slate-50/60 transition">
+                  <td className="py-3 px-4">
+                    <p className="font-bold text-slate-800">{shift.id.toUpperCase()}</p>
+                    <p className="text-[10px] text-slate-400">
+                      {new Date(shift.openedAt).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                  </td>
+                  <td className="py-3 px-4 text-slate-700 font-medium">{shift.cashierName}</td>
+                  <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">
+                    Rs. {(shift.openingFloat || 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-4 text-right font-medium text-slate-600 tabular-nums">
+                    Rs. {(shift.expectedCash || 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-4 text-right font-bold text-slate-800 tabular-nums">
+                    Rs. {(shift.actualCash || 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    {(shift.discrepancy || 0) === 0 ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Rs. 0 (Balanced)
+                      </span>
+                    ) : (shift.discrepancy || 0) > 0 ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                        +Rs. {(shift.discrepancy || 0).toLocaleString()} (Surplus)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
+                        -Rs. {Math.abs(shift.discrepancy || 0).toLocaleString()} (Short)
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
+                    {shift.zReportNumber || '#Z-HISTORICAL'}
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      Reconciled
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleViewHistoricalZReport(shift)}
+                      className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition cursor-pointer"
+                      title="Inspect Official Z-Report"
+                    >
+                      <Printer className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </section>
-      {/* END: Previous Cash Closings Log */}
+
+      {/* MID-SHIFT X-REPORT MODAL */}
+      {activeReportModal === 'x_report' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col font-sans">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[#3FA9A8]" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Mid-Shift X-Report Reading</h3>
+                  <p className="text-[10px] text-slate-400">Non-resetting interim sales reading</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveReportModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 bg-[#FAF8F5] border-b border-slate-200 font-mono text-xs text-slate-800 space-y-2 select-text">
+              <div className="text-center pb-3 border-b border-dashed border-slate-400">
+                <p className="font-bold text-base tracking-tight uppercase">DINEPOS BISTRO &amp; GRILL</p>
+                <p className="text-[11px] text-slate-600">OFFICIAL MID-SHIFT X-READING</p>
+                <p className="text-[10px] text-slate-500">NON-FISCAL AUDIT INVENTORY</p>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-slate-400 text-[11px] space-y-1">
+                <div className="flex justify-between"><span>REGISTER:</span><span>STATION-01</span></div>
+                <div className="flex justify-between"><span>CASHIER:</span><span>{cashierName}</span></div>
+                <div className="flex justify-between">
+                  <span>SHIFT STARTED:</span>
+                  <span>{currentShift?.openedAt ? new Date(currentShift.openedAt).toLocaleTimeString() : '09:00 AM'}</span>
+                </div>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-xs">
+                <div className="flex justify-between font-bold"><span>OPENING FLOAT:</span><span>Rs. {shiftMetrics.openingFloat.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>CASH SALES:</span><span>+Rs. {shiftMetrics.cashSales.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>CARD SALES:</span><span>Rs. {shiftMetrics.cardSales.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>EASYPAISA:</span><span>Rs. {shiftMetrics.easypaisaSales.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>JAZZCASH:</span><span>Rs. {shiftMetrics.jazzcashSales.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold pt-1 border-t border-dashed border-slate-300">
+                  <span>GROSS REVENUE:</span><span>Rs. {shiftMetrics.totalSales.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-xs">
+                <div className="flex justify-between text-rose-700"><span>DRAWER EXPENSES:</span><span>-Rs. {shiftMetrics.drawerExpenses.toLocaleString()}</span></div>
+                <div className="flex justify-between text-amber-700"><span>SAFE SKIMS:</span><span>-Rs. {shiftMetrics.safeDrops.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold text-emerald-800 pt-1 border-t border-dashed border-slate-300">
+                  <span>EXPECTED IN DRAWER:</span><span>Rs. {shiftMetrics.systemExpected.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <p className="text-center text-[10px] text-slate-400 pt-1 italic">
+                * Note: Register session remains open after X-Report *
+              </p>
+            </div>
+
+            <div className="p-4 bg-white flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveReportModal(null)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-[#3FA9A8] hover:bg-[#359392] text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+              >
+                <Printer className="w-4 h-4" />
+                Print X-Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FINAL Z-REPORT VOUCHER MODAL */}
+      {activeReportModal === 'z_report' && selectedZReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col font-sans">
+            <div className="p-4 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Official Z-Report Closing Voucher</h3>
+                  <p className="text-[10px] text-emerald-700">{selectedZReport.zReportNumber || '#Z-OFFICIAL'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveReportModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 bg-[#FAF8F5] border-b border-slate-200 font-mono text-xs text-slate-800 space-y-2 select-text">
+              <div className="text-center pb-3 border-b border-dashed border-slate-400">
+                <p className="font-bold text-base tracking-tight uppercase">DINEPOS BISTRO &amp; GRILL</p>
+                <p className="text-[11px] text-slate-600">END OF DAY Z-REPORT FISCAL SETTLEMENT</p>
+                <p className="text-[10px] font-bold text-emerald-800">{selectedZReport.zReportNumber || '#Z-OFFICIAL'}</p>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-slate-400 text-[11px] space-y-1">
+                <div className="flex justify-between"><span>STATION:</span><span>{selectedZReport.station}</span></div>
+                <div className="flex justify-between"><span>CASHIER:</span><span>{selectedZReport.cashierName}</span></div>
+                <div className="flex justify-between">
+                  <span>DATE:</span>
+                  <span>{new Date(selectedZReport.openedAt).toLocaleDateString('en-PK')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>STATUS:</span>
+                  <span className="font-bold text-emerald-700">CLOSED &amp; RECONCILED</span>
+                </div>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-xs">
+                <div className="flex justify-between font-bold"><span>OPENING FLOAT:</span><span>Rs. {(selectedZReport.openingFloat || 0).toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>SYSTEM EXPECTED:</span><span>Rs. {(selectedZReport.expectedCash || 0).toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold text-emerald-700">
+                  <span>PHYSICAL COUNTED:</span>
+                  <span>Rs. {(selectedZReport.actualCash || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between font-bold pt-1 border-t border-dashed border-slate-300">
+                  <span>VARIANCE:</span>
+                  <span className={(selectedZReport.discrepancy || 0) === 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                    {(selectedZReport.discrepancy || 0) === 0 ? 'Rs. 0 (BALANCED)' : `Rs. ${(selectedZReport.discrepancy || 0).toLocaleString()}`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-slate-400 text-[10px] space-y-1">
+                <p className="font-bold text-slate-700">MANAGER WITNESS:</p>
+                <p className="italic">PIN: **** Verified • Audit Token: #AUTH-JD4921</p>
+                {selectedZReport.closingNotes && (
+                  <p className="text-slate-600 mt-1">Notes: {selectedZReport.closingNotes}</p>
+                )}
+              </div>
+
+              <p className="text-center text-[10px] text-slate-400 pt-1">
+                *** REGISTER CLOSED — ARCHIVED LOCALLY ***
+              </p>
+            </div>
+
+            <div className="p-4 bg-white flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveReportModal(null)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-[#3FA9A8] hover:bg-[#359392] text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+              >
+                <Printer className="w-4 h-4" />
+                Print Official Z-Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

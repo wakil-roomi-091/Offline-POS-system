@@ -182,7 +182,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   offlineSyncStatus: 'synced'
 };
 
-import { INITIAL_TRANSACTIONS, INITIAL_EXPENSES, INITIAL_BOOKING_SHEETS } from './seedData';
+import { INITIAL_TRANSACTIONS, INITIAL_EXPENSES, INITIAL_BOOKING_SHEETS, INITIAL_SHIFTS } from './seedData';
 
 export async function initializeDatabase() {
   const productCount = await db.products.count();
@@ -205,6 +205,11 @@ export async function initializeDatabase() {
   const bookingSheetsCount = await db.bookingSheets.count();
   if (bookingSheetsCount === 0) {
     await db.bookingSheets.bulkAdd(INITIAL_BOOKING_SHEETS);
+  }
+
+  const shiftCount = await db.shifts.count();
+  if (shiftCount === 0) {
+    await db.shifts.bulkAdd(INITIAL_SHIFTS);
   }
 
   const settingsSaved = await db.settings.get('storeConfig');
