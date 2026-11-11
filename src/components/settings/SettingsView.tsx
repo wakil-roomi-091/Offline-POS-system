@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../../db';
+import { backupService, type SnapshotSummary, type BackupPayload } from '../../services/backupService';
 
 type SettingsTab = 'store' | 'printer' | 'database' | 'security';
 
@@ -44,12 +45,52 @@ export const SettingsView: React.FC = () => {
   const [audioFeedback, setAudioFeedback] = useState(true);
 
   // Database stats & UI notifications
-  const [recordCounts, setRecordCounts] = useState({ products: 8, transactions: 12 });
-  const [targetDir] = useState('D:\\DinePos_Backups\\Database\\daily_sqlite.db');
+  const [recordCounts, setRecordCounts] = useState({
+    products: 0,
+    transactions: 0,
+    expenses: 0,
+    bookingSheets: 0,
+    shifts: 0
+  });
+  const [targetDir, setTargetDir] = useState('Local Backups Directory (IndexedDB / AppData)');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [localSnapshots, setLocalSnapshots] = useState<SnapshotSummary[]>([]);
+  const [pendingRestore, setPendingRestore] = useState<{
+    payload: BackupPayload;
+    counts: Record<string, number>;
+    fileName?: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load initial settings from DB if available
+  const refreshCounts = async () => {
+    try {
+      const [pCount, tCount, eCount, bCount, sCount] = await Promise.all([
+        db.products.count(),
+        db.transactions.count(),
+        db.expenses.count(),
+        db.bookingSheets.count(),
+        db.shifts.count()
+      ]);
+      setRecordCounts({
+        products: pCount,
+        transactions: tCount,
+        expenses: eCount,
+        bookingSheets: bCount,
+        shifts: sCount
+      });
+    } catch (err) {
+      console.error('Failed to load counts:', err);
+    }
+  };
+
+  const loadLocalSnapshots = () => {
+    const list = backupService.getLocalSnapshots();
+    setLocalSnapshots(list);
+  };
+
+  // Load initial settings and counts from DB
   useEffect(() => {
     async function loadSettingsAndCounts() {
       try {
@@ -62,12 +103,20 @@ export const SettingsView: React.FC = () => {
           if (cfg.receiptHeader) setReceiptGreeting(cfg.receiptHeader);
           if (cfg.receiptFooter) setReceiptFooter(cfg.receiptFooter);
         }
-
-        const pCount = await db.products.count();
-        const tCount = await db.transactions.count();
-        setRecordCounts({ products: pCount, transactions: tCount });
       } catch (err) {
         console.error('Failed to load settings:', err);
+      }
+      await refreshCounts();
+      loadLocalSnapshots();
+
+      // Check electron local backup path if available
+      const electronAPI = (window as any).electronAPI;
+      if (electronAPI && typeof electronAPI.listLocalBackups === 'function') {
+        electronAPI.listLocalBackups().then((res: any) => {
+          if (res?.directory) {
+            setTargetDir(res.directory);
+          }
+        }).catch(() => {});
       }
     }
     loadSettingsAndCounts();
@@ -143,74 +192,86 @@ export const SettingsView: React.FC = () => {
 
   // Backup & Restore
   const handleCreateBackup = async () => {
+    setIsBackingUp(true);
     try {
-      const products = await db.products.toArray();
-      const transactions = await db.transactions.toArray();
-      const expenses = await db.expenses.toArray();
-      const shifts = await db.shifts.toArray();
-      const cashMovements = await db.cashMovements.toArray();
-      const settings = await db.settings.toArray();
-
-      const backupData = {
-        app: 'DinePos',
-        version: '2.4.1',
-        createdAt: new Date().toISOString(),
-        products,
-        transactions,
-        expenses,
-        shifts,
-        cashMovements,
-        settings
-      };
-
-      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `DinePos_Database_Snapshot_${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast('Full SQLite database backup downloaded successfully!');
-    } catch (err) {
+      const payload = await backupService.generateBackupPayload('Manual User Snapshot');
+      const res = await backupService.downloadBackupFile(payload);
+      if (res.success) {
+        showToast(res.filePath ? `Backup saved to: ${res.filePath}` : 'Full database snapshot exported successfully!');
+        loadLocalSnapshots();
+      }
+    } catch (err: any) {
       console.error(err);
-      showToast('Error generating database backup.');
+      showToast('Error generating database backup: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsBackingUp(false);
     }
   };
 
-  const handleRestoreFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleRestoreFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const text = event.target?.result as string;
-        const data = JSON.parse(text);
-
-        if (confirm('Restoring will replace existing records. Proceed?')) {
-          if (data.products && Array.isArray(data.products)) {
-            await db.products.clear();
-            await db.products.bulkAdd(data.products);
-          }
-          if (data.transactions && Array.isArray(data.transactions)) {
-            await db.transactions.clear();
-            await db.transactions.bulkAdd(data.transactions);
-          }
-          if (data.expenses && Array.isArray(data.expenses)) {
-            await db.expenses.clear();
-            await db.expenses.bulkAdd(data.expenses);
-          }
-          showToast('Database snapshot restored successfully!');
-          const pCount = await db.products.count();
-          const tCount = await db.transactions.count();
-          setRecordCounts({ products: pCount, transactions: tCount });
-        }
-      } catch {
-        alert('Invalid backup file format.');
+    try {
+      const payload = await backupService.readBackupFile(file);
+      const validation = backupService.validateBackup(payload);
+      if (!validation.valid) {
+        alert(validation.error || 'Invalid backup file format.');
+        return;
       }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+
+      setPendingRestore({
+        payload,
+        counts: validation.counts as any,
+        fileName: file.name
+      });
+    } catch (err: any) {
+      alert('Could not read backup file: ' + (err?.message || 'Corrupted file'));
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore) return;
+    setIsRestoring(true);
+    try {
+      const res = await backupService.restoreBackup(pendingRestore.payload);
+      showToast(res.message);
+      setPendingRestore(null);
+      await refreshCounts();
+      loadLocalSnapshots();
+    } catch (err: any) {
+      alert('Restore failed: ' + (err?.message || 'Error'));
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleRestoreSnapshot = (snap: SnapshotSummary) => {
+    const validation = backupService.validateBackup(snap.payload);
+    if (!validation.valid) {
+      alert('Invalid snapshot data.');
+      return;
+    }
+    setPendingRestore({
+      payload: snap.payload,
+      counts: validation.counts as any,
+      fileName: `${snap.reason} (${snap.dateStr})`
+    });
+  };
+
+  const handleOpenBackupFolder = async () => {
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI && typeof electronAPI.openBackupFolder === 'function') {
+      try {
+        await electronAPI.openBackupFolder();
+      } catch {
+        showToast('Could not open folder in Explorer.');
+      }
+    } else {
+      showToast('Physical folder access is enabled in Desktop Electron app.');
+    }
   };
 
   const handleTestPrint = () => {
@@ -1224,18 +1285,23 @@ Local SQLite Audit Verified • Terminal-01
               {/* Backup Details */}
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <span className="text-slate-400">Last Auto-Backup:</span>
-                  <span className="font-semibold text-slate-700">Today, 06:30 PM (Auto-shift)</span>
+                  <span className="text-slate-400">Last Snapshot:</span>
+                  <span className="font-semibold text-slate-700">
+                    {localSnapshots.length > 0 ? localSnapshots[0].dateStr : 'No snapshots yet'}
+                  </span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-slate-100">
                   <span className="text-slate-400">Active Storage:</span>
-                  <span className="font-semibold text-slate-700">SQLite 3.42 (WAL Mode)</span>
+                  <span className="font-semibold text-slate-700">Dexie IndexedDB (Offline ACID)</span>
                 </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <div className="flex flex-col gap-1 py-1.5 border-b border-slate-100">
                   <span className="text-slate-400">Records Logged:</span>
-                  <span className="font-semibold text-slate-700">
-                    {recordCounts.products} Products • {recordCounts.transactions} Today&apos;s Tx
-                  </span>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 text-[11px]">
+                    <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-medium">📦 {recordCounts.products} Products</span>
+                    <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-medium">💳 {recordCounts.transactions} Transactions</span>
+                    <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-medium">💸 {recordCounts.expenses} Expenses</span>
+                    <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-medium">📋 {recordCounts.bookingSheets} Slips</span>
+                  </div>
                 </div>
                 <div className="pt-1">
                   <span className="text-slate-400 block mb-1">Target Directory:</span>
@@ -1248,10 +1314,10 @@ Local SQLite Audit Verified • Terminal-01
                     />
                     <button
                       type="button"
-                      onClick={() => showToast('Backup directory path confirmed.')}
+                      onClick={handleOpenBackupFolder}
                       className="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 text-slate-700 whitespace-nowrap cursor-pointer"
                     >
-                      Browse
+                      Open Folder
                     </button>
                   </div>
                 </div>
@@ -1259,10 +1325,19 @@ Local SQLite Audit Verified • Terminal-01
 
               {/* Action Buttons */}
               <div className="pt-2 space-y-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleRestoreFileSelected}
+                  accept=".json"
+                  className="hidden"
+                />
+
                 <button
                   type="button"
+                  disabled={isBackingUp}
                   onClick={handleCreateBackup}
-                  className="w-full py-2.5 bg-[#3FA9A8] hover:bg-[#349392] active:bg-[#2A7978] text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-2.5 bg-[#3FA9A8] hover:bg-[#349392] active:bg-[#2A7978] disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -1272,7 +1347,7 @@ Local SQLite Audit Verified • Terminal-01
                       strokeWidth="2"
                     />
                   </svg>
-                  Create Immediate Backup (.db)
+                  {isBackingUp ? 'Generating Backup...' : 'Create Immediate Backup (.json)'}
                 </button>
 
                 <button
@@ -1291,11 +1366,90 @@ Local SQLite Audit Verified • Terminal-01
                   Restore from Backup File
                 </button>
               </div>
+
+              {/* Local Snapshots Carousel / List */}
+              {localSnapshots.length > 0 && (
+                <div className="pt-3 border-t border-slate-100">
+                  <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">Recent Local Snapshots</p>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {localSnapshots.slice(0, 5).map((snap) => (
+                      <div key={snap.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px]">
+                        <div className="truncate mr-2">
+                          <p className="font-semibold text-slate-800 truncate">{snap.reason}</p>
+                          <p className="text-[10px] text-slate-400">{snap.dateStr} • {snap.totalRecords} records</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreSnapshot(snap)}
+                          className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded text-[10px] cursor-pointer shrink-0"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
       {/* END: Settings Scrollable Body Layout */}
+
+      {/* Restore Confirmation Modal */}
+      {pendingRestore && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center font-bold">
+                ⚠️
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Confirm Database Restore</h3>
+                <p className="text-xs text-slate-500">{pendingRestore.fileName || 'Selected Backup'}</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
+              <p className="font-bold mb-1">Warning: Existing records will be replaced!</p>
+              <p className="text-[11px]">
+                A safety rollback snapshot of your current database will be saved automatically before restoring.
+              </p>
+            </div>
+
+            <div className="space-y-1.5 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <p className="font-bold text-slate-700 mb-1 text-[11px] uppercase tracking-wider">Payload Summary:</p>
+              <div className="grid grid-cols-2 gap-2 text-slate-600 text-[11px]">
+                <div>• Products: <strong>{pendingRestore.counts.products || 0}</strong></div>
+                <div>• Transactions: <strong>{pendingRestore.counts.transactions || 0}</strong></div>
+                <div>• Expenses: <strong>{pendingRestore.counts.expenses || 0}</strong></div>
+                <div>• Booking Slips: <strong>{pendingRestore.counts.bookingSheets || 0}</strong></div>
+                <div>• Register Shifts: <strong>{pendingRestore.counts.shifts || 0}</strong></div>
+                <div>• Cash In/Out: <strong>{pendingRestore.counts.cashMovements || 0}</strong></div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isRestoring}
+                onClick={() => setPendingRestore(null)}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isRestoring}
+                onClick={handleConfirmRestore}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm"
+              >
+                {isRestoring ? 'Restoring Tables...' : 'Proceed with Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

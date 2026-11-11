@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useShiftStore } from '../../store/useShiftStore';
 import { useUIStore } from '../../store/useUIStore';
+import { backupService } from '../../services/backupService';
 
 export const CashClosingView: React.FC = () => {
   const { closeShift } = useShiftStore();
@@ -84,7 +85,7 @@ export const CashClosingView: React.FC = () => {
     input?.focus();
   };
 
-  const handleFinalizeShift = () => {
+  const handleFinalizeShift = async () => {
     if (!witnessPin.trim()) {
       alert('Please enter Manager Witness PIN to authorize shift closing.');
       return;
@@ -92,11 +93,16 @@ export const CashClosingView: React.FC = () => {
 
     if (confirm(`Finalize and close Register Shift? Total physical counted cash: Rs. ${parsedCounted.toLocaleString()}`)) {
       setIsFinalizing(true);
+      try {
+        await backupService.createAutoSnapshot(`Shift Close (Counted: Rs. ${parsedCounted.toLocaleString()})`);
+      } catch (err) {
+        console.warn('Auto snapshot on shift close failed:', err);
+      }
       setTimeout(() => {
         closeShift(parsedCounted);
         setIsFinalizing(false);
         setIsClosed(true);
-        alert(`Shift 1 closed successfully!\nZ-Report Voucher #Z-2024-0089 generated and archived to local SQLite database.`);
+        alert(`Shift 1 closed successfully!\nZ-Report Voucher #Z-2024-0089 generated and archived with an automated database snapshot.`);
       }, 700);
     }
   };
