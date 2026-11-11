@@ -5,8 +5,8 @@ interface CartState {
   cart: CartItem[];
   orderNote: string;
   taxRate: number;
-  addToCart: (product: Product, variation?: string) => void;
-  updateQty: (itemId: string, delta: number) => void;
+  addToCart: (product: Product, variation?: string, maxStock?: number) => boolean;
+  updateQty: (itemId: string, delta: number, maxStock?: number) => boolean;
   removeFromCart: (itemId: string) => void;
   clearCart: () => void;
   setOrderNote: (note: string) => void;
@@ -16,22 +16,29 @@ interface CartState {
 }
 
 export const useCartStore = create<CartState>((set, get) => ({
-  // Initial cart items preloaded matching Stitch design demo
-  cart: [
-    { id: 'cart-1', productId: 'p1', name: 'Cappuccino', price: 3.50, qty: 1, icon: '☕' },
-    { id: 'cart-2', productId: 'p5', name: 'Bagel', price: 2.80, qty: 2, icon: '🥯' },
-    { id: 'cart-3', productId: 'p7', name: 'Caesar Salad', price: 6.50, qty: 1, icon: '🥗' },
-    { id: 'cart-4', productId: 'p9', name: 'Orange Juice', price: 2.90, qty: 1, icon: '🍊' },
-  ],
+  // Clean cart initialized on launch
+  cart: [],
   orderNote: '',
   taxRate: 0.08, // 8% tax
 
-  addToCart: (product: Product, variation?: string) => {
+  addToCart: (product: Product, variation?: string, maxStock?: number) => {
+    const stockLimit = maxStock !== undefined ? maxStock : (product.stock ?? 9999);
+    if (stockLimit <= 0) {
+      alert(`"${product.name}" is currently out of stock.`);
+      return false;
+    }
+
+    let success = true;
     set((state) => {
       const existing = state.cart.find(
         (item) => item.productId === product.id && item.variation === variation
       );
       if (existing) {
+        if (existing.qty >= stockLimit) {
+          alert(`Cannot add more. Available stock limit is ${stockLimit} units for "${product.name}".`);
+          success = false;
+          return state;
+        }
         return {
           cart: state.cart.map((item) =>
             item.id === existing.id ? { ...item, qty: item.qty + 1 } : item
@@ -49,15 +56,26 @@ export const useCartStore = create<CartState>((set, get) => ({
       };
       return { cart: [...state.cart, newItem] };
     });
+    return success;
   },
 
-  updateQty: (itemId: string, delta: number) => {
+  updateQty: (itemId: string, delta: number, maxStock?: number) => {
+    let success = true;
     set((state) => {
+      const itemToUpdate = state.cart.find((i) => i.id === itemId);
+      if (itemToUpdate && delta > 0 && maxStock !== undefined) {
+        if (itemToUpdate.qty >= maxStock) {
+          alert(`Cannot exceed available inventory of ${maxStock} units.`);
+          success = false;
+          return state;
+        }
+      }
       const updated = state.cart
         .map((item) => (item.id === itemId ? { ...item, qty: item.qty + delta } : item))
         .filter((item) => item.qty > 0);
       return { cart: updated };
     });
+    return success;
   },
 
   removeFromCart: (itemId: string) => {

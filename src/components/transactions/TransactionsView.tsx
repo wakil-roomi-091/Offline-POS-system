@@ -267,11 +267,38 @@ export const TransactionsView: React.FC = () => {
 
   const handleRefundOrVoid = async (tx: Transaction) => {
     const nextStatus = tx.status === 'refunded' ? 'completed' : 'refunded';
-    if (confirm(`Do you want to mark transaction ${tx.id} as ${nextStatus.toUpperCase()}?`)) {
+    const isRefunding = nextStatus === 'refunded';
+    const confirmMessage = isRefunding
+      ? `Issue Refund for Ticket ${tx.id}?\n\nThis will mark the ticket as REFUNDED and automatically restore ${tx.items.reduce((s, i) => s + i.qty, 0)} item(s) back into inventory stock.`
+      : `Restore Ticket ${tx.id} to COMPLETED?\n\nThis will re-deduct ${tx.items.reduce((s, i) => s + i.qty, 0)} item(s) from inventory stock.`;
+
+    if (confirm(confirmMessage)) {
       try {
-        await db.transactions.update(tx.id, { status: nextStatus });
+        await db.transaction('rw', [db.transactions, db.products], async () => {
+          // 1. Update transaction status
+          await db.transactions.update(tx.id, { status: nextStatus });
+
+          // 2. Adjust inventory stock atomically
+          for (const item of tx.items) {
+            if (item.productId) {
+              const product = await db.products.get(item.productId);
+              if (product) {
+                const currentStock = product.stock ?? 0;
+                const newStock = isRefunding
+                  ? currentStock + item.qty
+                  : Math.max(0, currentStock - item.qty);
+                const isAvailable = newStock > 0;
+                await db.products.update(item.productId, {
+                  stock: newStock,
+                  isAvailable,
+                });
+              }
+            }
+          }
+        });
       } catch (err) {
-        console.error('Error updating status:', err);
+        console.error('Error updating status and inventory:', err);
+        alert('Failed to update transaction status. Please try again.');
       }
     }
   };

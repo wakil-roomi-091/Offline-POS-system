@@ -22,8 +22,8 @@ export const PaymentModal: React.FC = () => {
 
   useEffect(() => {
     if (paymentModalOpen) {
-      const initialTender = total <= 20 ? 20 : Math.ceil(total / 10) * 10;
-      setTenderAmount(initialTender.toFixed(2));
+      const initialTender = total <= 500 ? (Math.ceil(total / 100) * 100 || 500) : (Math.ceil(total / 500) * 500);
+      setTenderAmount(initialTender.toString());
     }
   }, [paymentModalOpen, total]);
 
@@ -35,11 +35,11 @@ export const PaymentModal: React.FC = () => {
   };
 
   const setTender = (val: number) => {
-    setTenderAmount(val.toFixed(2));
+    setTenderAmount(val.toString());
   };
 
   const setExactTender = () => {
-    setTenderAmount(total.toFixed(2));
+    setTenderAmount(Math.round(total).toString());
   };
 
   const handleConfirmPayment = async () => {
@@ -64,8 +64,27 @@ export const PaymentModal: React.FC = () => {
       notes: orderNote,
     };
 
-    // Save to local offline database
-    await db.transactions.add(transaction);
+    // Save transaction and atomically deduct inventory stock from local database
+    await db.transaction('rw', [db.transactions, db.products], async () => {
+      // 1. Save transaction
+      await db.transactions.add(transaction);
+
+      // 2. Atomically deduct item quantities from stock
+      for (const item of cart) {
+        if (item.productId) {
+          const product = await db.products.get(item.productId);
+          if (product) {
+            const currentStock = product.stock ?? 0;
+            const newStock = Math.max(0, currentStock - item.qty);
+            const isAvailable = newStock > 0;
+            await db.products.update(item.productId, {
+              stock: newStock,
+              isAvailable,
+            });
+          }
+        }
+      }
+    });
 
     // Record cash drawer movement if cash
     if (method === 'cash') {
@@ -124,7 +143,9 @@ export const PaymentModal: React.FC = () => {
           {/* Amount To Pay Card */}
           <div className="bg-teal-50/60 border border-teal-100 rounded-2xl p-4 flex items-center justify-between">
             <span className="text-sm font-medium text-teal-800">Total Payable:</span>
-            <span className="text-3xl font-extrabold text-[#3FA9A8]" id="modalPayableAmount">${total.toFixed(2)}</span>
+            <span className="text-3xl font-extrabold text-[#3FA9A8] font-mono" id="modalPayableAmount">
+              Rs. {Math.round(total).toLocaleString()}
+            </span>
           </div>
 
           {/* Payment Methods */}
@@ -183,21 +204,21 @@ export const PaymentModal: React.FC = () => {
             <div className="space-y-3 bg-slate-50/80 p-4 rounded-2xl border border-slate-200/60" id="cashCalcSection">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-slate-600">Quick Cash Tender:</span>
-                <div className="flex gap-1.5" id="quickCashButtons">
-                  <button className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(20)}>$20</button>
-                  <button className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(30)}>$30</button>
-                  <button className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(50)}>$50</button>
-                  <button className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={setExactTender}>Exact</button>
+                <div className="flex flex-wrap gap-1.5" id="quickCashButtons">
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(500)}>Rs 500</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(1000)}>Rs 1000</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(5000)}>Rs 5000</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={setExactTender}>Exact</button>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Cash Received ($)</label>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Cash Received (Rs.)</label>
                   <input 
-                    className="w-full text-base font-bold bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#43AAA9] focus:border-[#43AAA9] px-3 py-2" 
+                    className="w-full text-base font-bold bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#43AAA9] focus:border-[#43AAA9] px-3 py-2 font-mono" 
                     id="cashReceivedInput" 
                     onChange={(e) => handleTenderChange(e.target.value)} 
-                    step="0.01" 
+                    step="1" 
                     type="number" 
                     value={tenderAmount}
                   />
@@ -207,12 +228,12 @@ export const PaymentModal: React.FC = () => {
                   <div 
                     className={
                       change < 0
-                        ? "w-full text-base font-extrabold bg-rose-50 text-rose-600 rounded-xl px-3 py-2 border border-rose-200 flex items-center"
-                        : "w-full text-base font-extrabold bg-emerald-50 text-emerald-600 rounded-xl px-3 py-2 border border-emerald-200 flex items-center"
+                        ? "w-full text-base font-extrabold bg-rose-50 text-rose-600 rounded-xl px-3 py-2 border border-rose-200 flex items-center font-mono"
+                        : "w-full text-base font-extrabold bg-emerald-50 text-emerald-600 rounded-xl px-3 py-2 border border-emerald-200 flex items-center font-mono"
                     } 
                     id="changeDueDisplay"
                   >
-                    {change < 0 ? `-$${Math.abs(change).toFixed(2)}` : `$${change.toFixed(2)}`}
+                    {change < 0 ? `-Rs. ${Math.abs(Math.round(change)).toLocaleString()}` : `Rs. ${Math.round(change).toLocaleString()}`}
                   </div>
                 </div>
               </div>
