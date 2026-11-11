@@ -14,6 +14,8 @@ export interface Product {
   price: number;
   costPrice?: number;
   stock: number;
+  lowStockThreshold?: number;
+  supplierName?: string;
   sku?: string;
   icon: string;
   isAvailable: boolean;

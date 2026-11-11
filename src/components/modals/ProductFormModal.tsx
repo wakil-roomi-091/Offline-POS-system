@@ -37,6 +37,10 @@ export const ProductFormModal: React.FC = () => {
   const [icon, setIcon] = useState('🍛');
   const [isMultiSize, setIsMultiSize] = useState(false);
   const [singlePrice, setSinglePrice] = useState('450');
+  const [costPrice, setCostPrice] = useState('220');
+  const [stock, setStock] = useState('50');
+  const [lowStockThreshold, setLowStockThreshold] = useState('10');
+  const [supplierName, setSupplierName] = useState('');
   const [variations, setVariations] = useState<ProductVariation[]>([
     { name: 'Single / Half', price: 450, sku: 'SKU-S' },
     { name: 'Double / Full', price: 850, sku: 'SKU-F' },
@@ -64,6 +68,10 @@ export const ProductFormModal: React.FC = () => {
       setIcon(editingProduct.icon || '🍛');
       setIsMultiSize(Boolean(editingProduct.isMultiSize || (editingProduct.variations && editingProduct.variations.length > 0)));
       setSinglePrice((editingProduct.price || 0).toString());
+      setCostPrice((editingProduct.costPrice ?? Math.round((editingProduct.price || 0) * 0.45)).toString());
+      setStock((editingProduct.stock ?? 50).toString());
+      setLowStockThreshold((editingProduct.lowStockThreshold ?? 10).toString());
+      setSupplierName(editingProduct.supplierName || '');
       setVariations(
         editingProduct.variations && editingProduct.variations.length > 0
           ? editingProduct.variations
@@ -85,6 +93,10 @@ export const ProductFormModal: React.FC = () => {
       setIcon('🍛');
       setIsMultiSize(false);
       setSinglePrice('450');
+      setCostPrice('220');
+      setStock('50');
+      setLowStockThreshold('10');
+      setSupplierName('');
       setVariations([
         { name: 'Single / Half', price: 450, sku: `${generatedSku}-S` },
         { name: 'Double / Full', price: 850, sku: `${generatedSku}-F` },
@@ -158,6 +170,10 @@ export const ProductFormModal: React.FC = () => {
       ? 'Complimentary Add-on'
       : 'Standard Portion';
 
+    const parsedCost = parseFloat(costPrice) || 0;
+    const parsedStock = Math.max(0, parseInt(stock) || 0);
+    const parsedThreshold = Math.max(1, parseInt(lowStockThreshold) || 10);
+
     if (editingProduct) {
       await db.products.update(editingProduct.id, {
         name: name.trim(),
@@ -167,6 +183,10 @@ export const ProductFormModal: React.FC = () => {
         description: description.trim(),
         icon,
         price: calculatedPrice,
+        costPrice: parsedCost,
+        stock: parsedStock,
+        lowStockThreshold: parsedThreshold,
+        supplierName: supplierName.trim(),
         isMultiSize,
         variations: isMultiSize ? variations : [],
         isComplimentary,
@@ -184,8 +204,10 @@ export const ProductFormModal: React.FC = () => {
         description: description.trim(),
         icon,
         price: calculatedPrice,
-        costPrice: Math.round(calculatedPrice * 0.45),
-        stock: 50,
+        costPrice: parsedCost,
+        stock: parsedStock,
+        lowStockThreshold: parsedThreshold,
+        supplierName: supplierName.trim(),
         isMultiSize,
         variations: isMultiSize ? variations : [],
         isComplimentary,
@@ -442,6 +464,100 @@ export const ProductFormModal: React.FC = () => {
                 </div>
               </div>
             )}
+            {/* Inventory & Cost Accounting Section */}
+            <div className="space-y-3 pt-3 border-t border-slate-200">
+              <div>
+                <h4 className="font-bold text-slate-900 text-xs">Inventory &amp; Cost Valuation</h4>
+                <p className="text-[11px] text-slate-400">Track cost of goods sold, profit margin, and restock alert levels.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Cost Price (Rs.) <span className="text-slate-400 font-normal">Per Unit</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-xs font-bold text-slate-400">
+                      Rs.
+                    </span>
+                    <input
+                      className="w-full text-xs py-1.5 pl-9 pr-2 rounded-lg border border-slate-200 bg-white font-bold focus:border-[#3FA9A8] outline-none"
+                      placeholder="0.00"
+                      type="number"
+                      value={costPrice}
+                      onChange={(e) => setCostPrice(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Current Stock <span className="text-slate-400 font-normal">Units</span>
+                  </label>
+                  <input
+                    className="w-full text-xs py-1.5 px-3 rounded-lg border border-slate-200 bg-white font-bold focus:border-[#3FA9A8] outline-none"
+                    placeholder="50"
+                    type="number"
+                    min="0"
+                    value={stock}
+                    onChange={(e) => setStock(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Low Stock Threshold <span className="text-slate-400 font-normal">Alert At</span>
+                  </label>
+                  <input
+                    className="w-full text-xs py-1.5 px-3 rounded-lg border border-slate-200 bg-white font-bold focus:border-[#3FA9A8] outline-none"
+                    placeholder="10"
+                    type="number"
+                    min="1"
+                    value={lowStockThreshold}
+                    onChange={(e) => setLowStockThreshold(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Preferred Supplier / Vendor
+                  </label>
+                  <input
+                    className="w-full text-xs py-1.5 px-3 rounded-lg border border-slate-200 bg-white focus:border-[#3FA9A8] outline-none"
+                    placeholder="e.g. Madina Poultry Mart"
+                    type="text"
+                    value={supplierName}
+                    onChange={(e) => setSupplierName(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Live Profit Margin Calculator Banner */}
+              {(() => {
+                const sPrice = isComplimentary ? 0 : isMultiSize && variations.length > 0 ? variations[0].price : (parseFloat(singlePrice) || 0);
+                const cPrice = parseFloat(costPrice) || 0;
+                const unitProfit = Math.max(0, sPrice - cPrice);
+                const marginPct = sPrice > 0 ? ((unitProfit / sPrice) * 100).toFixed(1) : '0.0';
+                const isHealthy = parseFloat(marginPct) >= 35;
+
+                return (
+                  <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+                    isHealthy ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800' : 'bg-amber-50/70 border-amber-200 text-amber-800'
+                  }`}>
+                    <div>
+                      <span className="font-bold">Unit Gross Margin: </span>
+                      <span className="font-extrabold">{marginPct}%</span>
+                      <span className="text-[11px] ml-1.5 text-slate-600">
+                        (Profit: Rs. {unitProfit.toLocaleString()} / unit)
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white shadow-2xs">
+                      {isHealthy ? '✓ Healthy Margin' : '⚠️ Low Margin'}
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
           {/* Additional Options & POS Availability */}

@@ -85,7 +85,7 @@ export const ProductCatalog: React.FC = () => {
         {filteredProducts.map((item: Product) => {
           const stock = item.stock ?? 0;
           const isOutOfStock = !item.isAvailable || stock <= 0;
-          const isLowStock = !isOutOfStock && stock <= 5;
+          const isLowStock = !isOutOfStock && stock <= (item.lowStockThreshold ?? 10);
           const cartItem = cart.find((c) => c.productId === item.id);
           const inCartQty = cartItem?.qty || 0;
 
