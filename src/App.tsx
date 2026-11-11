@@ -10,6 +10,7 @@ import { CashClosingView } from './components/register/CashClosingView';
 import { ReportsView } from './components/reports/ReportsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { OrderBookersView } from './components/bookers/OrderBookersView';
+import { OrderBookingView } from './components/bookers/OrderBookingView';
 
 import { PaymentModal } from './components/modals/PaymentModal';
 import { SaleSuccessModal } from './components/modals/SaleSuccessModal';
@@ -89,6 +90,8 @@ export function App() {
         return <CashClosingView />;
       case 'order_bookers':
         return <OrderBookersView />;
+      case 'order_booking':
+        return <OrderBookingView />;
       case 'reports':
         return <ReportsView />;
       case 'settings':

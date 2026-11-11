@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { OrderBooker, BookingRecord } from '../../types';
 
-const INITIAL_BOOKERS: OrderBooker[] = [
+export const INITIAL_BOOKERS: OrderBooker[] = [
   {
     id: '#BKR-0101',
     name: 'Tariq Mehmood',

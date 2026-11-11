@@ -5,7 +5,8 @@ import type {
   ShiftRecord, 
   CashMovement, 
   ExpenseRecord, 
-  StoreSettings 
+  StoreSettings,
+  OrderBookingSheet
 } from '../types';
 
 export class DinePosDatabase extends Dexie {
@@ -14,6 +15,7 @@ export class DinePosDatabase extends Dexie {
   shifts!: Table<ShiftRecord, string>;
   cashMovements!: Table<CashMovement, string>;
   expenses!: Table<ExpenseRecord, string>;
+  bookingSheets!: Table<OrderBookingSheet, string>;
   settings!: Table<{ key: string; value: any }, string>;
 
   constructor() {
@@ -25,6 +27,9 @@ export class DinePosDatabase extends Dexie {
       cashMovements: 'id, shiftId, timestamp',
       expenses: 'id, category, timestamp',
       settings: 'key'
+    });
+    this.version(2).stores({
+      bookingSheets: 'id, physicalSlipNo, bookerId, status, dateTime'
     });
   }
 }
@@ -177,7 +182,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   offlineSyncStatus: 'synced'
 };
 
-import { INITIAL_TRANSACTIONS, INITIAL_EXPENSES } from './seedData';
+import { INITIAL_TRANSACTIONS, INITIAL_EXPENSES, INITIAL_BOOKING_SHEETS } from './seedData';
 
 export async function initializeDatabase() {
   const productCount = await db.products.count();
@@ -195,6 +200,11 @@ export async function initializeDatabase() {
   const expenseCount = await db.expenses.count();
   if (expenseCount === 0) {
     await db.expenses.bulkAdd(INITIAL_EXPENSES);
+  }
+
+  const bookingSheetsCount = await db.bookingSheets.count();
+  if (bookingSheetsCount === 0) {
+    await db.bookingSheets.bulkAdd(INITIAL_BOOKING_SHEETS);
   }
 
   const settingsSaved = await db.settings.get('storeConfig');
