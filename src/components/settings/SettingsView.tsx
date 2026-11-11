@@ -3,6 +3,8 @@ import { db } from '../../db';
 
 type SettingsTab = 'store' | 'printer' | 'database' | 'security';
 
+const SAMPLE_RECEIPT_DATE = '12/11/2026';
+
 export const SettingsView: React.FC = () => {
   // Navigation Sub-tab
   const [activeSubTab, setActiveSubTab] = useState<SettingsTab>('store');
@@ -203,7 +205,7 @@ export const SettingsView: React.FC = () => {
           const tCount = await db.transactions.count();
           setRecordCounts({ products: pCount, transactions: tCount });
         }
-      } catch (err) {
+      } catch {
         alert('Invalid backup file format.');
       }
     };
@@ -1090,7 +1092,7 @@ Local SQLite Audit Verified • Terminal-01
                     <span>09:15 PM</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>DATE: {new Date().toLocaleDateString('en-GB')}</span>
+                    <span>DATE: {SAMPLE_RECEIPT_DATE}</span>
                     <span>TABLE: T-04 (Dine-In)</span>
                   </div>
                   <div className="flex justify-between">

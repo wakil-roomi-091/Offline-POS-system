@@ -3,7 +3,10 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { useUIStore } from '../../store/useUIStore';
 import { format } from 'date-fns';
+import { INITIAL_TRANSACTIONS } from '../../db/seedData';
 import type { Transaction } from '../../types';
+
+const EMPTY_TRANSACTIONS: Transaction[] = [];
 
 export const TransactionsView: React.FC = () => {
   const { setSelectedTransaction, setReceiptPreviewModalOpen } = useUIStore();
@@ -19,166 +22,12 @@ export const TransactionsView: React.FC = () => {
   const pageSize = 7;
 
   // Live transactions query from Dexie DB
-  const rawTransactions = useLiveQuery(() => db.transactions.reverse().sortBy('timestamp'), []) || [];
+  const rawTransactions = useLiveQuery(() => db.transactions.reverse().sortBy('timestamp'), []) ?? EMPTY_TRANSACTIONS;
 
   // Fallback demo transactions if DB has none or very few
   const transactions: Transaction[] = useMemo(() => {
-    if (rawTransactions.length >= 7) return rawTransactions;
-
-    const now = Date.now();
-    const fallbackList: Transaction[] = [
-      {
-        id: '#REC-2024-0842',
-        orderNumber: 842,
-        items: [
-          { id: '1', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 1, icon: '🍛', notes: 'Full portion' },
-          { id: '2', productId: 'p2', name: 'Chicken Karahi (Desi Ghee)', price: 1150, qty: 1, icon: '🍲', notes: 'Half portion' },
-          { id: '3', productId: 'p4', name: 'Garlic Roghani Naan', price: 120, qty: 3, icon: '🫓', notes: 'Fresh Tandoor' },
-          { id: '4', productId: 'p5', name: 'Karak Doodh Patti Chai', price: 90, qty: 2, icon: '☕', notes: 'Regular cup' },
-        ],
-        subtotal: 2420,
-        tax: 120,
-        discount: 0,
-        total: 2540,
-        paymentMethod: 'easypaisa',
-        amountReceived: 2540,
-        changeDue: 0,
-        status: 'completed',
-        timestamp: now - 18 * 60 * 1000,
-        cashierName: 'Muhammad Salman',
-        station: 'Terminal 01',
-        notes: 'Dine-In (T-04)',
-        referenceId: 'TXN-EP-9941208',
-      },
-      {
-        id: '#REC-2024-0841',
-        orderNumber: 841,
-        items: [
-          { id: '5', productId: 'p2', name: 'Chicken Karahi (Desi Ghee)', price: 1150, qty: 1, icon: '🍲', notes: 'Half portion' },
-        ],
-        subtotal: 1150,
-        tax: 0,
-        discount: 0,
-        total: 1150,
-        paymentMethod: 'cash',
-        amountReceived: 1200,
-        changeDue: 50,
-        status: 'completed',
-        timestamp: now - 29 * 60 * 1000,
-        cashierName: 'Tariq Mehmood',
-        station: 'Terminal 02',
-        notes: 'Takeaway',
-        referenceId: 'TXN-CS-1104',
-      },
-      {
-        id: '#REC-2024-0840',
-        orderNumber: 840,
-        items: [
-          { id: '6', productId: 'p3', name: 'Mutton Seekh Kebab (4 pcs)', price: 780, qty: 2, icon: '🍢', notes: 'Standard Plate' },
-          { id: '7', productId: 'p2', name: 'Chicken Karahi (Full)', price: 2200, qty: 1, icon: '🍲', notes: 'Full clay handi' },
-          { id: '8', productId: 'p4', name: 'Garlic Roghani Naan', price: 120, qty: 4, icon: '🫓', notes: 'Sesame butter' },
-          { id: '9', productId: 'p5', name: 'Karak Doodh Patti Chai', price: 90, qty: 4, icon: '☕', notes: 'Cardamom brew' },
-        ],
-        subtotal: 4440,
-        tax: 240,
-        discount: 0,
-        total: 4680,
-        paymentMethod: 'card',
-        amountReceived: 4680,
-        changeDue: 0,
-        status: 'completed',
-        timestamp: now - 36 * 60 * 1000,
-        cashierName: 'Muhammad Salman',
-        station: 'Terminal 01',
-        notes: 'Dine-In (T-08)',
-        referenceId: 'TXN-MEEZAN-4819',
-      },
-      {
-        id: '#REC-2024-0839',
-        orderNumber: 839,
-        items: [
-          { id: '10', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 1, icon: '🍛', notes: 'Single portion' },
-        ],
-        subtotal: 850,
-        tax: 0,
-        discount: 0,
-        total: 850,
-        paymentMethod: 'jazzcash',
-        amountReceived: 850,
-        changeDue: 0,
-        status: 'completed',
-        timestamp: now - 45 * 60 * 1000,
-        cashierName: 'Muhammad Salman',
-        station: 'Terminal 01',
-        notes: 'Takeaway',
-        referenceId: 'TXN-JC-5502',
-      },
-      {
-        id: '#REC-2024-0838',
-        orderNumber: 838,
-        items: [
-          { id: '11', productId: 'p burger', name: 'Zinger Burger Meal', price: 640, qty: 1, icon: '🍔', notes: 'With fries' },
-        ],
-        subtotal: 640,
-        tax: 0,
-        discount: 0,
-        total: 640,
-        paymentMethod: 'cash',
-        amountReceived: 640,
-        changeDue: 0,
-        status: 'refunded',
-        timestamp: now - 58 * 60 * 1000,
-        cashierName: 'Tariq Mehmood',
-        station: 'Terminal 02',
-        notes: 'Takeaway',
-        referenceId: 'TXN-REF-8802',
-      },
-      {
-        id: '#REC-2024-0837',
-        orderNumber: 837,
-        items: [
-          { id: '12', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 2, icon: '🍛', notes: 'Full' },
-          { id: '13', productId: 'p2', name: 'Chicken Karahi (Half)', price: 1150, qty: 1, icon: '🍲', notes: 'Half' },
-          { id: '14', productId: 'p4', name: 'Garlic Roghani Naan', price: 120, qty: 3, icon: '🫓', notes: 'Butter' },
-        ],
-        subtotal: 3210,
-        tax: 0,
-        discount: 0,
-        total: 3210,
-        paymentMethod: 'cash',
-        amountReceived: 3500,
-        changeDue: 290,
-        status: 'completed',
-        timestamp: now - 65 * 60 * 1000,
-        cashierName: 'Muhammad Salman',
-        station: 'Terminal 01',
-        notes: 'Dine-In (T-02)',
-        referenceId: 'TXN-CS-1105',
-      },
-      {
-        id: '#REC-2024-0836',
-        orderNumber: 836,
-        items: [
-          { id: '15', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 2, icon: '🍛', notes: 'Special' },
-          { id: '16', productId: 'p7', name: 'Fresh Lime Sprite', price: 190, qty: 1, icon: '🥤', notes: 'Chilled' },
-        ],
-        subtotal: 1890,
-        tax: 0,
-        discount: 0,
-        total: 1890,
-        paymentMethod: 'easypaisa',
-        amountReceived: 1890,
-        changeDue: 0,
-        status: 'completed',
-        timestamp: now - 76 * 60 * 1000,
-        cashierName: 'Muhammad Salman',
-        station: 'Terminal 01',
-        notes: 'Dine-In (T-11)',
-        referenceId: 'TXN-EP-9941190',
-      },
-    ];
-
-    return [...rawTransactions, ...fallbackList];
+    if (rawTransactions && rawTransactions.length > 0) return rawTransactions;
+    return INITIAL_TRANSACTIONS;
   }, [rawTransactions]);
 
   // Key metrics

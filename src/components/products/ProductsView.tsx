@@ -4,6 +4,8 @@ import { db } from '../../db';
 import { useUIStore } from '../../store/useUIStore';
 import type { Product } from '../../types';
 
+const EMPTY_PRODUCTS: Product[] = [];
+
 export const ProductsView: React.FC = () => {
   const { setProductFormModalOpen, setEditingProduct } = useUIStore();
 
@@ -15,7 +17,7 @@ export const ProductsView: React.FC = () => {
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const pageSize = 7;
 
-  const products = useLiveQuery(() => db.products.toArray(), []) || [];
+  const products = useLiveQuery(() => db.products.toArray(), []) ?? EMPTY_PRODUCTS;
 
   // Metrics computation
   const totalItems = products.length;

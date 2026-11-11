@@ -1,171 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { OrderBooker, BookingRecord } from '../../types';
-
-export const INITIAL_BOOKERS: OrderBooker[] = [
-  {
-    id: '#BKR-0101',
-    name: 'Tariq Mehmood',
-    avatarInitials: 'TM',
-    avatarColor: 'bg-emerald-100 text-emerald-700',
-    joinedDate: 'Joined 12 Jan 2023',
-    phone: '+92 300 4821903',
-    hasWhatsApp: true,
-    area: 'Gulberg III - Main Mkt',
-    areaKey: 'Gulberg',
-    todayBookings: 28,
-    todayUnits: 320,
-    todaySales: 84200,
-    status: 'Active',
-    address: 'Block 4, Gulberg Commercial Hub, Lahore',
-    notes: 'Handles major supermarket accounts in Gulberg; vehicle allocated.',
-    totalBookingsSheets: 412,
-    totalBookedUnits: 5240,
-    totalDeliveredUnits: 4890,
-    totalReturnedUnits: 350,
-    totalActualSales: 1428500,
-    rawGrossBookedValue: 1530000,
-  },
-  {
-    id: '#BKR-0102',
-    name: 'Muhammad Imran',
-    avatarInitials: 'MI',
-    avatarColor: 'bg-blue-100 text-blue-700',
-    joinedDate: 'Joined 04 Feb 2023',
-    phone: '+92 321 8452109',
-    hasWhatsApp: true,
-    area: 'DHA Phase 5 & 6',
-    areaKey: 'DHA',
-    todayBookings: 34,
-    todayUnits: 415,
-    todaySales: 112500,
-    status: 'Active',
-    address: 'Sector C, DHA Commercial, Lahore',
-    notes: 'Primary route: DHA Phase 5 and Phase 6 commercial marts.',
-    totalBookingsSheets: 468,
-    totalBookedUnits: 6100,
-    totalDeliveredUnits: 5850,
-    totalReturnedUnits: 250,
-    totalActualSales: 1845000,
-    rawGrossBookedValue: 1920000,
-  },
-  {
-    id: '#BKR-0103',
-    name: 'Zeeshan Ali',
-    avatarInitials: 'ZA',
-    avatarColor: 'bg-purple-100 text-purple-700',
-    joinedDate: 'Joined 28 Mar 2023',
-    phone: '+92 333 4901234',
-    hasWhatsApp: true,
-    area: 'Cantt Commercial Zone',
-    areaKey: 'Cantt',
-    todayBookings: 22,
-    todayUnits: 270,
-    todaySales: 61400,
-    status: 'Active',
-    address: 'Saddar Bazaar Rd, Cantt, Lahore',
-    notes: 'Covers retail general stores and cantonment markets.',
-    totalBookingsSheets: 320,
-    totalBookedUnits: 3950,
-    totalDeliveredUnits: 3720,
-    totalReturnedUnits: 230,
-    totalActualSales: 980000,
-    rawGrossBookedValue: 1040000,
-  },
-  {
-    id: '#BKR-0104',
-    name: 'Bilal Ahmed',
-    avatarInitials: 'BA',
-    avatarColor: 'bg-amber-100 text-amber-700',
-    joinedDate: 'Joined 15 Jun 2023',
-    phone: '+92 312 6789123',
-    hasWhatsApp: true,
-    area: 'Model Town Link Rd',
-    areaKey: 'Model Town',
-    todayBookings: 31,
-    todayUnits: 390,
-    todaySales: 78900,
-    status: 'Active',
-    address: 'Link Road Junction, Model Town, Lahore',
-    notes: 'Fast delivery route across Link Road wholesale outlets.',
-    totalBookingsSheets: 385,
-    totalBookedUnits: 4780,
-    totalDeliveredUnits: 4500,
-    totalReturnedUnits: 280,
-    totalActualSales: 1210000,
-    rawGrossBookedValue: 1285000,
-  },
-  {
-    id: '#BKR-0105',
-    name: 'Kashif Raza',
-    avatarInitials: 'KR',
-    avatarColor: 'bg-rose-100 text-rose-700',
-    joinedDate: 'Joined 01 Aug 2023',
-    phone: '+92 304 9876543',
-    hasWhatsApp: true,
-    area: 'Johar Town & PIA Rd',
-    areaKey: 'Johar Town',
-    todayBookings: 27,
-    todayUnits: 245,
-    todaySales: 47650,
-    status: 'Active',
-    address: 'G1 Market, Johar Town, Lahore',
-    notes: 'Johar Town and PIA Road restaurant and snack outlets.',
-    totalBookingsSheets: 290,
-    totalBookedUnits: 3320,
-    totalDeliveredUnits: 3140,
-    totalReturnedUnits: 180,
-    totalActualSales: 890000,
-    rawGrossBookedValue: 940000,
-  },
-  {
-    id: '#BKR-0106',
-    name: 'Naveed Sheikh',
-    avatarInitials: 'NS',
-    avatarColor: 'bg-slate-200 text-slate-700',
-    joinedDate: 'Standby (Relief)',
-    phone: '+92 301 5554321',
-    hasWhatsApp: false,
-    area: 'Saddar Wholesale Mkt',
-    areaKey: 'Saddar',
-    todayBookings: 0,
-    todayUnits: 0,
-    todaySales: 0,
-    status: 'Inactive',
-    statusNote: 'Standby duty',
-    address: 'Old Anarkali / Saddar Wholesale Hub',
-    notes: 'Relief driver & backup booker for peak seasons.',
-    totalBookingsSheets: 140,
-    totalBookedUnits: 1800,
-    totalDeliveredUnits: 1710,
-    totalReturnedUnits: 90,
-    totalActualSales: 460000,
-    rawGrossBookedValue: 485000,
-  },
-  {
-    id: '#BKR-0107',
-    name: 'Usman Farooq',
-    avatarInitials: 'UF',
-    avatarColor: 'bg-slate-200 text-slate-700',
-    joinedDate: 'Medical Leave',
-    phone: '+92 322 1122334',
-    hasWhatsApp: false,
-    area: 'Ferozepur Rd Corridor',
-    areaKey: 'Ferozepur',
-    todayBookings: 0,
-    todayUnits: 0,
-    todaySales: 0,
-    status: 'Inactive',
-    statusNote: 'On Leave',
-    address: 'Near Chungi Amar Sidhu, Ferozepur Rd',
-    notes: 'On medical leave until next week. Route temporarily reassigned.',
-    totalBookingsSheets: 195,
-    totalBookedUnits: 2450,
-    totalDeliveredUnits: 2310,
-    totalReturnedUnits: 140,
-    totalActualSales: 620000,
-    rawGrossBookedValue: 660000,
-  },
-];
+import { INITIAL_BOOKERS } from '../../db/seedData';
 
 const INITIAL_HISTORY: Record<string, BookingRecord[]> = {
   '#BKR-0101': [
@@ -253,6 +88,20 @@ export const OrderBookersView: React.FC = () => {
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
     }, 3500);
+  };
+
+  // Open Fast Booking Modal
+  const openFastBooking = (booker: OrderBooker) => {
+    setFastBookingBooker(booker);
+    setFastBookingData({
+      outletsCount: 18,
+      bookedUnits: 320,
+      returnUnits: 12,
+      deliveredUnits: 308,
+      actualSales: 84200,
+      notes: 'Evening dispatch sheet punch',
+    });
+    setIsFastBookingModalOpen(true);
   };
 
   // Keyboard listener for Escape & F2
@@ -455,20 +304,6 @@ export const OrderBookersView: React.FC = () => {
     }
 
     setIsAddEditModalOpen(false);
-  };
-
-  // Open Fast Booking Modal
-  const openFastBooking = (booker: OrderBooker) => {
-    setFastBookingBooker(booker);
-    setFastBookingData({
-      outletsCount: 18,
-      bookedUnits: 320,
-      returnUnits: 12,
-      deliveredUnits: 308,
-      actualSales: 84200,
-      notes: 'Evening dispatch sheet punch',
-    });
-    setIsFastBookingModalOpen(true);
   };
 
   // Handle Fast Booking Save

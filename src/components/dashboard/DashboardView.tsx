@@ -10,6 +10,7 @@ import {
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { useUIStore } from '../../store/useUIStore';
+import { INITIAL_TRANSACTIONS } from '../../db/seedData';
 import type { Transaction } from '../../types';
 
 interface ChartPoint {
@@ -22,6 +23,9 @@ interface ChartPoint {
   y: number;
   pctX: number;
 }
+
+const EMPTY_DASH_TRANSACTIONS: Transaction[] = [];
+const EMPTY_DASH_EXPENSES: any[] = [];
 
 export const DashboardView: React.FC = () => {
   const { 
@@ -55,8 +59,8 @@ export const DashboardView: React.FC = () => {
   const pageSize = 5;
 
   // Live queries from Dexie DB
-  const liveTransactions = useLiveQuery(() => db.transactions.toArray(), []) || [];
-  const liveExpenses = useLiveQuery(() => db.expenses.toArray(), []) || [];
+  const liveTransactions = useLiveQuery(() => db.transactions.toArray(), []) ?? EMPTY_DASH_TRANSACTIONS;
+  const liveExpenses = useLiveQuery(() => db.expenses.toArray(), []) ?? EMPTY_DASH_EXPENSES;
 
   // Multi-timeframe dynamic dataset modeling
   const metricsData = useMemo(() => {
@@ -297,121 +301,7 @@ export const DashboardView: React.FC = () => {
 
   // Unified Transactions List for Table
   const displayTransactions = useMemo(() => {
-    let list = [...liveTransactions];
-
-    if (list.length < 5) {
-      list = [
-        {
-          id: '#REC-4092',
-          orderNumber: 4092,
-          items: [
-            { id: '1', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 2, icon: '🍛' },
-            { id: '2', productId: 'p2', name: 'Chicken Karahi (Half)', price: 1150, qty: 1, icon: '🍲' },
-            { id: '3', productId: 'p3', name: 'Garlic Roghani Naan', price: 120, qty: 3, icon: '🫓' },
-            { id: '4', productId: 'p4', name: 'Karak Chai', price: 90, qty: 3, icon: '☕' }
-          ],
-          subtotal: 3370,
-          tax: 80,
-          discount: 0,
-          total: 3450,
-          paymentMethod: 'cash',
-          status: 'completed',
-          timestamp: Date.now() - 18 * 60 * 1000,
-          cashierName: 'Muhammad Salman',
-          station: 'Station 1',
-          notes: 'Dine-In (Table 4)'
-        },
-        {
-          id: '#REC-4091',
-          orderNumber: 4091,
-          items: [
-            { id: '5', productId: 'p2', name: 'Chicken Karahi (Half)', price: 1150, qty: 1, icon: '🍲' },
-            { id: '6', productId: 'p6', name: 'Tandoori Roti', price: 50, qty: 1, icon: '🫓' }
-          ],
-          subtotal: 1200,
-          tax: 0,
-          discount: 0,
-          total: 1200,
-          paymentMethod: 'easypaisa',
-          status: 'completed',
-          timestamp: Date.now() - 32 * 60 * 1000,
-          cashierName: 'Tariq Mehmood',
-          station: 'Station 2',
-          notes: 'Takeaway'
-        },
-        {
-          id: '#REC-4090',
-          orderNumber: 4090,
-          items: [
-            { id: '7', productId: 'p7', name: 'Mutton Seekh Kebab', price: 780, qty: 4, icon: '🍢' },
-            { id: '8', productId: 'p8', name: 'Chicken Karahi (Full)', price: 2200, qty: 1, icon: '🍲' },
-            { id: '9', productId: 'p3', name: 'Garlic Roghani Naan', price: 120, qty: 4, icon: '🫓' }
-          ],
-          subtotal: 5800,
-          tax: 20,
-          discount: 0,
-          total: 5820,
-          paymentMethod: 'jazzcash',
-          status: 'completed',
-          timestamp: Date.now() - 50 * 60 * 1000,
-          cashierName: 'Muhammad Salman',
-          station: 'Station 1',
-          notes: 'Dine-In (Table 9)'
-        },
-        {
-          id: '#REC-4089',
-          orderNumber: 4089,
-          items: [
-            { id: '10', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 2, icon: '🍛' },
-            { id: '11', productId: 'p9', name: 'Mint Margarita', price: 450, qty: 1, icon: '🍹' }
-          ],
-          subtotal: 2150,
-          tax: 0,
-          discount: 0,
-          total: 2150,
-          paymentMethod: 'cash',
-          status: 'completed',
-          timestamp: Date.now() - 72 * 60 * 1000,
-          cashierName: 'Tariq Mehmood',
-          station: 'Station 1',
-          notes: 'Dine-In (Table 2)'
-        },
-        {
-          id: '#REC-4088',
-          orderNumber: 4088,
-          items: [
-            { id: '12', productId: 'p10', name: 'Zinger Burger Deluxe', price: 650, qty: 1, icon: '🍔' }
-          ],
-          subtotal: 650,
-          tax: 0,
-          discount: 0,
-          total: 650,
-          paymentMethod: 'cash',
-          status: 'completed',
-          timestamp: Date.now() - 85 * 60 * 1000,
-          cashierName: 'Tariq Mehmood',
-          station: 'Station 2',
-          notes: 'Takeaway'
-        },
-        {
-          id: '#REC-4087',
-          orderNumber: 4087,
-          items: [
-            { id: '13', productId: 'p1', name: 'Chicken Biryani (Special)', price: 850, qty: 3, icon: '🍛' }
-          ],
-          subtotal: 2550,
-          tax: 50,
-          discount: 0,
-          total: 2600,
-          paymentMethod: 'card',
-          status: 'completed',
-          timestamp: Date.now() - 110 * 60 * 1000,
-          cashierName: 'Muhammad Salman',
-          station: 'Station 1',
-          notes: 'Dine-In (Table 6)'
-        }
-      ];
-    }
+    let list = liveTransactions.length >= 5 ? [...liveTransactions] : [...liveTransactions, ...INITIAL_TRANSACTIONS];
 
     if (txSearch.trim()) {
       const q = txSearch.toLowerCase();

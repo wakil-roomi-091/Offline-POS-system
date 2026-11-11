@@ -20,12 +20,14 @@ import {
   Layers
 } from 'lucide-react';
 import { db, INITIAL_PRODUCTS } from '../../db';
-import { INITIAL_BOOKERS } from './OrderBookersView';
+import { INITIAL_BOOKERS } from '../../db/seedData';
 import type { OrderBookingSheet, BookingSheetItem } from '../../types';
+
+const EMPTY_BOOKING_SHEETS: OrderBookingSheet[] = [];
 
 export const OrderBookingView: React.FC = () => {
   // Live records from Dexie DB
-  const liveSheets = useLiveQuery(() => db.bookingSheets.toArray(), []) || [];
+  const liveSheets = useLiveQuery(() => db.bookingSheets.toArray(), []) ?? EMPTY_BOOKING_SHEETS;
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');

@@ -55,6 +55,8 @@ const INITIAL_EXPENSE_LIST: ExpenseRecord[] = [
   },
 ];
 
+const EMPTY_EXPENSES: ExpenseRecord[] = [];
+
 export const ExpensesView: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'custom'>('today');
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,7 +86,7 @@ export const ExpensesView: React.FC = () => {
     } catch {
       return [];
     }
-  }, []) || [];
+  }, []) ?? EMPTY_EXPENSES;
 
   // Active expenses: use live records if available, otherwise show the authentic 4 templates
   const expenses: ExpenseRecord[] = useMemo(() => {

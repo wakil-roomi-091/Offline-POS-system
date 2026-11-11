@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useUIStore } from '../../store/useUIStore';
 import { db } from '../../db';
 import type { Product, ProductVariation } from '../../types';
@@ -28,6 +28,7 @@ const DIETARY_OPTIONS = [
 export const ProductFormModal: React.FC = () => {
   const { productFormModalOpen, setProductFormModalOpen, editingProduct, setEditingProduct } = useUIStore();
 
+  const [prevProduct, setPrevProduct] = useState<Product | null>(null);
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState('Rice & Biryani');
@@ -45,10 +46,12 @@ export const ProductFormModal: React.FC = () => {
   const [isAvailable, setIsAvailable] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  useEffect(() => {
+  // Sync state when editing product changes
+  if (editingProduct !== prevProduct) {
+    setPrevProduct(editingProduct);
     if (editingProduct) {
       setName(editingProduct.name || '');
-      setSku(editingProduct.sku || `#PRD-${Math.floor(1000 + Math.random() * 9000)}`);
+      setSku(editingProduct.sku || `#PRD-4091`);
       setCategory(editingProduct.category || 'Rice & Biryani');
       setDietaryTag(
         editingProduct.dietaryTag === 'Veg'
@@ -73,7 +76,7 @@ export const ProductFormModal: React.FC = () => {
       setShowOnPos(editingProduct.showOnPos !== false);
       setIsAvailable(editingProduct.isAvailable !== false);
     } else {
-      const generatedSku = `#PRD-${Math.floor(1000 + Math.random() * 9000)}`;
+      const generatedSku = `#PRD-1082`;
       setName('');
       setSku(generatedSku);
       setCategory('Rice & Biryani');
@@ -90,7 +93,13 @@ export const ProductFormModal: React.FC = () => {
       setShowOnPos(true);
       setIsAvailable(true);
     }
-  }, [editingProduct, productFormModalOpen]);
+  }
+
+  const closeModal = useCallback(() => {
+    setEditingProduct(null);
+    setProductFormModalOpen(false);
+    setShowEmojiPicker(false);
+  }, [setEditingProduct, setProductFormModalOpen]);
 
   // Handle ESC key to close
   useEffect(() => {
@@ -101,15 +110,9 @@ export const ProductFormModal: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [productFormModalOpen]);
+  }, [productFormModalOpen, closeModal]);
 
   if (!productFormModalOpen) return null;
-
-  const closeModal = () => {
-    setEditingProduct(null);
-    setProductFormModalOpen(false);
-    setShowEmojiPicker(false);
-  };
 
   const handleAddVariation = () => {
     setVariations([

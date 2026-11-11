@@ -49,7 +49,7 @@ app.on('window-all-closed', () => {
 });
 
 // IPC handlers for offline desktop POS capabilities
-ipcMain.handle('print-receipt', async (event, htmlContent) => {
+ipcMain.handle('print-receipt', async (_event, _htmlContent) => {
   // Silent thermal printing support for 80mm printers
   if (!mainWindow) return { success: false, error: 'Window not available' };
   return new Promise((resolve) => {

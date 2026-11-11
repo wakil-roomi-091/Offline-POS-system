@@ -1,15 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { useCartStore } from '../../store/useCartStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useShiftStore } from '../../store/useShiftStore';
 import { db } from '../../db';
-import type { PaymentMethod, Transaction } from '../../types';
+import type { PaymentMethod, Transaction, CartItem } from '../../types';
 
-export const PaymentModal: React.FC = () => {
+const createTransactionRecord = (params: {
+  cart: CartItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  method: PaymentMethod;
+  received: number;
+  changeDue: number;
+  cashierName: string;
+  station: string;
+  notes?: string;
+}): Transaction => ({
+  id: `TX-${Date.now().toString().slice(-6)}`,
+  orderNumber: Math.floor(1000 + Math.random() * 9000),
+  items: [...params.cart],
+  subtotal: params.subtotal,
+  tax: params.tax,
+  discount: 0,
+  total: params.total,
+  paymentMethod: params.method,
+  amountReceived: params.received,
+  changeDue: params.changeDue,
+  status: 'completed',
+  timestamp: Date.now(),
+  cashierName: params.cashierName,
+  station: params.station,
+  notes: params.notes,
+});
+
+const PaymentModalContent: React.FC = () => {
   const { cart, getTotal, getSubtotal, getTax, clearCart, orderNote } = useCartStore();
   const { 
-    paymentModalOpen, 
     setPaymentModalOpen, 
     setSaleSuccessModalOpen, 
     setLastCompletedTransaction 
@@ -18,14 +46,10 @@ export const PaymentModal: React.FC = () => {
 
   const total = getTotal();
   const [method, setMethod] = useState<PaymentMethod>('cash');
-  const [tenderAmount, setTenderAmount] = useState<string>('20.00');
-
-  useEffect(() => {
-    if (paymentModalOpen) {
-      const initialTender = total <= 500 ? (Math.ceil(total / 100) * 100 || 500) : (Math.ceil(total / 500) * 500);
-      setTenderAmount(initialTender.toString());
-    }
-  }, [paymentModalOpen, total]);
+  const [tenderAmount, setTenderAmount] = useState<string>(() => {
+    const initialTender = total <= 500 ? (Math.ceil(total / 100) * 100 || 500) : (Math.ceil(total / 500) * 500);
+    return initialTender.toString();
+  });
 
   const cashReceived = parseFloat(tenderAmount) || 0;
   const change = cashReceived - total;
@@ -46,23 +70,18 @@ export const PaymentModal: React.FC = () => {
     const received = parseFloat(tenderAmount) || total;
     const changeDueAmount = Math.max(0, received - total);
 
-    const transaction: Transaction = {
-      id: `TX-${Date.now().toString().slice(-6)}`,
-      orderNumber: Math.floor(1000 + Math.random() * 9000),
-      items: [...cart],
+    const transaction = createTransactionRecord({
+      cart,
       subtotal: getSubtotal(),
       tax: getTax(),
-      discount: 0,
       total,
-      paymentMethod: method,
-      amountReceived: received,
+      method,
+      received,
       changeDue: changeDueAmount,
-      status: 'completed',
-      timestamp: Date.now(),
       cashierName,
       station,
       notes: orderNote,
-    };
+    });
 
     // Save transaction and atomically deduct inventory stock from local database
     await db.transaction('rw', [db.transactions, db.products], async () => {
@@ -109,8 +128,6 @@ export const PaymentModal: React.FC = () => {
     clearCart();
   };
 
-  if (!paymentModalOpen) return null;
-
   return (
     <div 
       aria-labelledby="modalTitle" 
@@ -126,11 +143,11 @@ export const PaymentModal: React.FC = () => {
         {/* Modal Header */}
         <div className="p-6 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <span className="text-xs uppercase font-bold tracking-wider text-[#43AAA9]">Desktop Offline Checkout</span>
+            <span className="text-xs uppercase font-bold tracking-wider text-[#3FA9A8]">Desktop Offline Checkout</span>
             <h3 className="text-lg font-bold text-slate-800" id="modalTitle">Process Transaction</h3>
           </div>
           <button 
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-white transition-colors" 
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-white transition-colors cursor-pointer" 
             onClick={() => setPaymentModalOpen(false)}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -155,7 +172,7 @@ export const PaymentModal: React.FC = () => {
               <button 
                 type="button" 
                 onClick={() => setMethod('cash')}
-                className={`pay-method-btn flex flex-col items-center justify-center p-3 rounded-xl transition-all ${
+                className={`pay-method-btn flex flex-col items-center justify-center p-3 rounded-xl transition-all cursor-pointer ${
                   method === 'cash' 
                     ? 'active border-2 border-[#43AAA9] bg-teal-50/40 text-xs font-semibold text-teal-900' 
                     : 'border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-600'
@@ -164,13 +181,13 @@ export const PaymentModal: React.FC = () => {
                 <svg className={`w-5 h-5 mb-1 ${method === 'cash' ? 'text-[#43AAA9]' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
                 </svg>
-                Cash
+                Cash Register
               </button>
 
               <button 
                 type="button" 
                 onClick={() => setMethod('card')}
-                className={`pay-method-btn flex flex-col items-center justify-center p-3 rounded-xl transition-all ${
+                className={`pay-method-btn flex flex-col items-center justify-center p-3 rounded-xl transition-all cursor-pointer ${
                   method === 'card' 
                     ? 'active border-2 border-[#43AAA9] bg-teal-50/40 text-xs font-semibold text-teal-900' 
                     : 'border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-600'
@@ -185,7 +202,7 @@ export const PaymentModal: React.FC = () => {
               <button 
                 type="button" 
                 onClick={() => setMethod('qr')}
-                className={`pay-method-btn flex flex-col items-center justify-center p-3 rounded-xl transition-all ${
+                className={`pay-method-btn flex flex-col items-center justify-center p-3 rounded-xl transition-all cursor-pointer ${
                   method === 'qr' 
                     ? 'active border-2 border-[#43AAA9] bg-teal-50/40 text-xs font-semibold text-teal-900' 
                     : 'border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-600'
@@ -205,10 +222,10 @@ export const PaymentModal: React.FC = () => {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-slate-600">Quick Cash Tender:</span>
                 <div className="flex flex-wrap gap-1.5" id="quickCashButtons">
-                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(500)}>Rs 500</button>
-                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(1000)}>Rs 1000</button>
-                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={() => setTender(5000)}>Rs 5000</button>
-                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300" onClick={setExactTender}>Exact</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300 cursor-pointer" onClick={() => setTender(500)}>Rs 500</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300 cursor-pointer" onClick={() => setTender(1000)}>Rs 1000</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300 cursor-pointer" onClick={() => setTender(5000)}>Rs 5000</button>
+                  <button type="button" className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-teal-50 hover:border-teal-300 cursor-pointer" onClick={setExactTender}>Exact</button>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2">
@@ -258,7 +275,7 @@ export const PaymentModal: React.FC = () => {
                 </svg>
               </div>
               <p className="text-xs font-bold text-slate-800">Customer Scan to Pay</p>
-              <p className="text-[11px] text-slate-400">Supports Apple Pay, Google Wallet & Local Digital Wallets</p>
+              <p className="text-[11px] text-slate-400">Supports EasyPaisa, JazzCash, Apple Pay & Google Wallet</p>
             </div>
           )}
         </div>
@@ -266,13 +283,15 @@ export const PaymentModal: React.FC = () => {
         {/* Modal Footer */}
         <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
           <button 
-            className="flex-1 py-3 px-4 border border-slate-200 hover:bg-white text-slate-600 text-xs font-semibold rounded-xl transition-colors" 
+            type="button"
+            className="flex-1 py-3 px-4 border border-slate-200 hover:bg-white text-slate-600 text-xs font-semibold rounded-xl transition-colors cursor-pointer" 
             onClick={() => setPaymentModalOpen(false)}
           >
             Cancel
           </button>
           <button 
-            className="flex-1 py-3 px-4 bg-[#43AAA9] hover:bg-[#389a99] text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]" 
+            type="button"
+            className="flex-1 py-3 px-4 bg-[#3FA9A8] hover:bg-[#349695] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]" 
             onClick={handleConfirmPayment}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -284,4 +303,10 @@ export const PaymentModal: React.FC = () => {
       </div>
     </div>
   );
+};
+
+export const PaymentModal: React.FC = () => {
+  const { paymentModalOpen } = useUIStore();
+  if (!paymentModalOpen) return null;
+  return <PaymentModalContent />;
 };
