@@ -5,57 +5,195 @@ import { useUIStore } from '../../store/useUIStore';
 import { format } from 'date-fns';
 import { INITIAL_TRANSACTIONS } from '../../db/seedData';
 import type { Transaction } from '../../types';
+import { Calendar, X, TrendingUp, TrendingDown, RefreshCw, FileText } from 'lucide-react';
 
 const EMPTY_TRANSACTIONS: Transaction[] = [];
+
+// Format timestamp helper outside component to keep purity
+function formatTxTime(timestamp: number, baseTimestamp: number): string {
+  try {
+    const d = new Date(timestamp);
+    const now = new Date(baseTimestamp);
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(baseTimestamp - 24 * 60 * 60 * 1000);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+
+    if (isToday) return `Today, ${format(d, 'hh:mm a')}`;
+    if (isYesterday) return `Yesterday, ${format(d, 'hh:mm a')}`;
+    return format(d, 'dd MMM yyyy, hh:mm a');
+  } catch {
+    return 'Recent';
+  }
+}
+
+// Payment dot indicator color
+function getPaymentBadge(method: string) {
+  const m = method.toLowerCase();
+  if (m === 'easypaisa') {
+    return { dot: 'bg-emerald-500', label: 'Easypaisa' };
+  }
+  if (m === 'jazzcash') {
+    return { dot: 'bg-amber-500', label: 'JazzCash' };
+  }
+  if (m === 'card') {
+    return { dot: 'bg-indigo-500', label: 'Card (Meezan)' };
+  }
+  return { dot: 'bg-[#3FA9A8]', label: 'Cash' };
+}
 
 export const TransactionsView: React.FC = () => {
   const { setSelectedTransaction, setReceiptPreviewModalOpen } = useUIStore();
 
+  // Stable reference timestamp on mount for render purity
+  const [baseTimestamp] = useState(() => Date.now());
+
+  // Search and categorization filters
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<'all' | 'dine_in' | 'takeaway'>('all');
   const [methodFilter, setMethodFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  // Unified Date Filter states
   const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'custom'>('today');
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  });
+  const [customEndDate, setCustomEndDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+
+  // Pagination & selection
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
-
   const pageSize = 7;
 
   // Live transactions query from Dexie DB
   const rawTransactions = useLiveQuery(() => db.transactions.reverse().sortBy('timestamp'), []) ?? EMPTY_TRANSACTIONS;
 
-  // Fallback demo transactions if DB has none or very few
+  // Authentic fallback if store just launched and has not populated seed yet
   const transactions: Transaction[] = useMemo(() => {
     if (rawTransactions && rawTransactions.length > 0) return rawTransactions;
     return INITIAL_TRANSACTIONS;
   }, [rawTransactions]);
 
-  // Key metrics
+  // Compute active date boundaries
+  const { startTime, endTime, prevStartTime, prevEndTime, dateLabel, comparisonLabel } = useMemo(() => {
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const todayDate = new Date(baseTimestamp);
+    todayDate.setHours(0, 0, 0, 0);
+    const startOfToday = todayDate.getTime();
+    const endOfToday = startOfToday + oneDayMs - 1;
+
+    let start = 0;
+    let end = baseTimestamp;
+    let prevStart = 0;
+    let prevEnd = 0;
+    let label = '';
+    let compLabel = '';
+
+    if (dateFilter === 'today') {
+      start = startOfToday;
+      end = endOfToday;
+      prevStart = startOfToday - oneDayMs;
+      prevEnd = startOfToday - 1;
+      label = `Today (${format(new Date(baseTimestamp), 'dd MMM yyyy')})`;
+      compLabel = 'vs. yesterday';
+    } else if (dateFilter === 'week') {
+      start = baseTimestamp - 7 * oneDayMs;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 14 * oneDayMs;
+      prevEnd = baseTimestamp - 7 * oneDayMs;
+      label = `Last 7 Days (${format(start, 'dd MMM')} - ${format(end, 'dd MMM yyyy')})`;
+      compLabel = 'vs. prior 7d';
+    } else if (dateFilter === 'month') {
+      start = baseTimestamp - 30 * oneDayMs;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 60 * oneDayMs;
+      prevEnd = baseTimestamp - 30 * oneDayMs;
+      label = `Last 30 Days (${format(start, 'dd MMM')} - ${format(end, 'dd MMM yyyy')})`;
+      compLabel = 'vs. prior 30d';
+    } else {
+      const s = new Date(`${customStartDate}T00:00:00`);
+      const e = new Date(`${customEndDate}T23:59:59.999`);
+      start = isNaN(s.getTime()) ? baseTimestamp - 7 * oneDayMs : s.getTime();
+      end = isNaN(e.getTime()) ? baseTimestamp : e.getTime();
+      const span = Math.max(oneDayMs, end - start);
+      prevStart = start - span;
+      prevEnd = start;
+      label = `Custom (${customStartDate} to ${customEndDate})`;
+      compLabel = 'vs. prior period';
+    }
+
+    return {
+      startTime: start,
+      endTime: end,
+      prevStartTime: prevStart,
+      prevEndTime: prevEnd,
+      dateLabel: label,
+      comparisonLabel: compLabel
+    };
+  }, [dateFilter, customStartDate, customEndDate, baseTimestamp]);
+
+  // Date-window scoped transactions
+  const dateRangeTransactions = useMemo(() => {
+    return transactions.filter((tx) => tx.timestamp >= startTime && tx.timestamp <= endTime);
+  }, [transactions, startTime, endTime]);
+
+  const prevRangeTransactions = useMemo(() => {
+    return transactions.filter((tx) => tx.timestamp >= prevStartTime && tx.timestamp <= prevEndTime);
+  }, [transactions, prevStartTime, prevEndTime]);
+
+  // Key metrics calculation for current date range
   const totalSales = useMemo(() => {
-    return transactions.reduce((sum, tx) => (tx.status === 'completed' ? sum + tx.total : sum), 0);
-  }, [transactions]);
+    return dateRangeTransactions.reduce((sum, tx) => (tx.status === 'completed' ? sum + tx.total : sum), 0);
+  }, [dateRangeTransactions]);
+
+  const prevTotalSales = useMemo(() => {
+    return prevRangeTransactions.reduce((sum, tx) => (tx.status === 'completed' ? sum + tx.total : sum), 0);
+  }, [prevRangeTransactions]);
+
+  const salesTrend = useMemo(() => {
+    if (prevTotalSales === 0) return { pct: totalSales > 0 ? 100 : 0, isUp: totalSales >= 0 };
+    const diff = totalSales - prevTotalSales;
+    const pct = Math.round((diff / prevTotalSales) * 100);
+    return { pct: Math.abs(pct), isUp: diff >= 0 };
+  }, [totalSales, prevTotalSales]);
 
   const completedCount = useMemo(() => {
-    return transactions.filter((tx) => tx.status === 'completed').length;
-  }, [transactions]);
+    return dateRangeTransactions.filter((tx) => tx.status === 'completed').length;
+  }, [dateRangeTransactions]);
+
+  const prevCompletedCount = useMemo(() => {
+    return prevRangeTransactions.filter((tx) => tx.status === 'completed').length;
+  }, [prevRangeTransactions]);
+
+  const ordersTrend = useMemo(() => {
+    if (prevCompletedCount === 0) return { pct: completedCount > 0 ? 100 : 0, isUp: completedCount >= 0 };
+    const diff = completedCount - prevCompletedCount;
+    const pct = Math.round((diff / prevCompletedCount) * 100);
+    return { pct: Math.abs(pct), isUp: diff >= 0 };
+  }, [completedCount, prevCompletedCount]);
 
   const cashSales = useMemo(() => {
-    return transactions
+    return dateRangeTransactions
       .filter((tx) => tx.status === 'completed' && tx.paymentMethod.toLowerCase() === 'cash')
       .reduce((sum, tx) => sum + tx.total, 0);
-  }, [transactions]);
+  }, [dateRangeTransactions]);
 
   const digitalSales = useMemo(() => {
-    return transactions
+    return dateRangeTransactions
       .filter((tx) => tx.status === 'completed' && tx.paymentMethod.toLowerCase() !== 'cash')
       .reduce((sum, tx) => sum + tx.total, 0);
-  }, [transactions]);
+  }, [dateRangeTransactions]);
 
-  const cashPct = totalSales > 0 ? Math.round((cashSales / totalSales) * 100) : 58;
+  const cashPct = totalSales > 0 ? Math.round((cashSales / totalSales) * 100) : 0;
+  const digitalPct = totalSales > 0 ? Math.round((digitalSales / totalSales) * 100) : 0;
 
-  // Filtered transactions
+  // Filtered transactions (Date Range + Search + Dropdown Filters)
   const filteredTransactions = useMemo(() => {
-    let result = [...transactions];
+    let result = [...dateRangeTransactions];
 
     // Search query
     if (searchQuery.trim()) {
@@ -88,7 +226,7 @@ export const TransactionsView: React.FC = () => {
     }
 
     return result;
-  }, [transactions, searchQuery, channelFilter, methodFilter, statusFilter]);
+  }, [dateRangeTransactions, searchQuery, channelFilter, methodFilter, statusFilter]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
@@ -165,7 +303,7 @@ export const TransactionsView: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `DinePos_Transactions_${Date.now()}.csv`);
+    link.setAttribute('download', `DinePos_Transactions_${dateFilter}_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -180,32 +318,8 @@ export const TransactionsView: React.FC = () => {
     setChannelFilter('all');
     setMethodFilter('all');
     setStatusFilter('all');
+    setDateFilter('today');
     setCurrentPage(1);
-  };
-
-  // Format timestamp helper
-  const formatTxTime = (timestamp: number) => {
-    try {
-      const d = new Date(timestamp);
-      return `Today, ${format(d, 'hh:mm a')}`;
-    } catch {
-      return 'Today, 08:42 PM';
-    }
-  };
-
-  // Payment dot indicator color
-  const getPaymentBadge = (method: string) => {
-    const m = method.toLowerCase();
-    if (m === 'easypaisa') {
-      return { dot: 'bg-emerald-500', label: 'Easypaisa' };
-    }
-    if (m === 'jazzcash') {
-      return { dot: 'bg-amber-500', label: 'JazzCash' };
-    }
-    if (m === 'card') {
-      return { dot: 'bg-indigo-500', label: 'Card (Meezan)' };
-    }
-    return { dot: 'bg-[#3FA9A8]', label: 'Cash' };
   };
 
   return (
@@ -213,9 +327,15 @@ export const TransactionsView: React.FC = () => {
       {/* BEGIN: Page Header & Quick Controls */}
       <section className="flex flex-col md:flex-row md:items-center justify-between gap-4" data-purpose="page-header">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Transactions</h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Transactions &amp; Settlements</h2>
+            <span className="px-2.5 py-0.5 text-xs font-semibold bg-teal-50 text-[#3FA9A8] border border-teal-200/60 rounded-full">
+              Live Dexie Audit
+            </span>
+          </div>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Review completed sales, audit settlement logs, and manage customer receipts.
+            Review completed sales, audit settlement logs, and manage customer receipts for{' '}
+            <strong className="text-slate-700">{dateLabel}</strong>.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -223,7 +343,10 @@ export const TransactionsView: React.FC = () => {
           <div className="flex bg-slate-200/70 p-1 rounded-xl text-xs font-semibold text-slate-600">
             <button
               type="button"
-              onClick={() => setDateFilter('today')}
+              onClick={() => {
+                setDateFilter('today');
+                setCurrentPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
                 dateFilter === 'today' ? 'bg-[#3FA9A8] text-white shadow-sm' : 'hover:text-slate-900'
               }`}
@@ -232,7 +355,10 @@ export const TransactionsView: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setDateFilter('week')}
+              onClick={() => {
+                setDateFilter('week');
+                setCurrentPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
                 dateFilter === 'week' ? 'bg-[#3FA9A8] text-white shadow-sm' : 'hover:text-slate-900'
               }`}
@@ -241,7 +367,10 @@ export const TransactionsView: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setDateFilter('month')}
+              onClick={() => {
+                setDateFilter('month');
+                setCurrentPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
                 dateFilter === 'month' ? 'bg-[#3FA9A8] text-white shadow-sm' : 'hover:text-slate-900'
               }`}
@@ -250,15 +379,17 @@ export const TransactionsView: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setDateFilter('custom')}
-              className={`px-3 py-1.5 rounded-lg flex items-center gap-1 transition cursor-pointer ${
+              onClick={() => {
+                setDateFilter('custom');
+                setShowCustomDateModal(true);
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer ${
                 dateFilter === 'custom' ? 'bg-[#3FA9A8] text-white shadow-sm' : 'hover:text-slate-900'
               }`}
             >
+              <Calendar className="w-3.5 h-3.5" />
               <span>Custom</span>
-              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
             </button>
           </div>
 
@@ -302,24 +433,18 @@ export const TransactionsView: React.FC = () => {
                 <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
               </svg>
             </div>
-            <button type="button" className="text-slate-300 hover:text-slate-600 cursor-pointer">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="2"></circle>
-                <circle cx="12" cy="12" r="2"></circle>
-                <circle cx="12" cy="19" r="2"></circle>
-              </svg>
-            </button>
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+              {dateFilter.toUpperCase()}
+            </span>
           </div>
           <div className="mt-4">
             <span className="text-xs font-medium text-slate-400">Total Sales</span>
             <h3 className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">
               Rs. {totalSales.toLocaleString()}
             </h3>
-            <p className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 mt-2">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <polyline points="18 15 12 9 6 15"></polyline>
-              </svg>
-              <span>12.5%</span> <span className="text-slate-400 font-normal">from yesterday</span>
+            <p className={`text-[11px] font-semibold flex items-center gap-1 mt-2 ${salesTrend.isUp ? 'text-emerald-600' : 'text-rose-500'}`}>
+              {salesTrend.isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+              <span>{salesTrend.pct}%</span> <span className="text-slate-400 font-normal">{comparisonLabel}</span>
             </p>
           </div>
         </div>
@@ -334,22 +459,16 @@ export const TransactionsView: React.FC = () => {
                 <polyline points="9 14 11 16 15 12"></polyline>
               </svg>
             </div>
-            <button type="button" className="text-slate-300 hover:text-slate-600 cursor-pointer">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="2"></circle>
-                <circle cx="12" cy="12" r="2"></circle>
-                <circle cx="12" cy="19" r="2"></circle>
-              </svg>
-            </button>
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+              VOLUME
+            </span>
           </div>
           <div className="mt-4">
             <span className="text-xs font-medium text-slate-400">Completed Transactions</span>
-            <h3 className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">{completedCount}</h3>
-            <p className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 mt-2">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <polyline points="18 15 12 9 6 15"></polyline>
-              </svg>
-              <span>8.2%</span> <span className="text-slate-400 font-normal">from yesterday</span>
+            <h3 className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">{completedCount} Orders</h3>
+            <p className={`text-[11px] font-semibold flex items-center gap-1 mt-2 ${ordersTrend.isUp ? 'text-emerald-600' : 'text-rose-500'}`}>
+              {ordersTrend.isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+              <span>{ordersTrend.pct}%</span> <span className="text-slate-400 font-normal">{comparisonLabel}</span>
             </p>
           </div>
         </div>
@@ -364,13 +483,9 @@ export const TransactionsView: React.FC = () => {
                 <path d="M6 12h.01M18 12h.01"></path>
               </svg>
             </div>
-            <button type="button" className="text-slate-300 hover:text-slate-600 cursor-pointer">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="2"></circle>
-                <circle cx="12" cy="12" r="2"></circle>
-                <circle cx="12" cy="19" r="2"></circle>
-              </svg>
-            </button>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
+              {cashPct}% SHARE
+            </span>
           </div>
           <div className="mt-4">
             <span className="text-xs font-medium text-slate-400">Cash Received</span>
@@ -379,7 +494,7 @@ export const TransactionsView: React.FC = () => {
             </h3>
             <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1.5 mt-2">
               <span className="w-2 h-2 rounded-full bg-[#3FA9A8]"></span>
-              <span>{cashPct}% of total volume</span>
+              <span>Physical drawer tender in period</span>
             </p>
           </div>
         </div>
@@ -393,13 +508,9 @@ export const TransactionsView: React.FC = () => {
                 <line x1="2" x2="22" y1="10" y2="10"></line>
               </svg>
             </div>
-            <button type="button" className="text-slate-300 hover:text-slate-600 cursor-pointer">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="2"></circle>
-                <circle cx="12" cy="12" r="2"></circle>
-                <circle cx="12" cy="19" r="2"></circle>
-              </svg>
-            </button>
+            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
+              {digitalPct}% SHARE
+            </span>
           </div>
           <div className="mt-4">
             <span className="text-xs font-medium text-slate-400">Digital Payments</span>
@@ -428,7 +539,7 @@ export const TransactionsView: React.FC = () => {
             </span>
             <input
               className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8]"
-              placeholder="Search receipt #, customer, order ID..."
+              placeholder="Search receipt #, customer, order ID, cashier..."
               type="text"
               value={searchQuery}
               onChange={(e) => {
@@ -443,7 +554,7 @@ export const TransactionsView: React.FC = () => {
             className="text-xs py-2 pl-3 pr-8 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 focus:bg-white focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] cursor-pointer"
             value={channelFilter}
             onChange={(e) => {
-              setChannelFilter(e.target.value as any);
+              setChannelFilter(e.target.value as 'all' | 'dine_in' | 'takeaway');
               setCurrentPage(1);
             }}
           >
@@ -488,9 +599,10 @@ export const TransactionsView: React.FC = () => {
         <button
           type="button"
           onClick={resetFilters}
-          className="text-xs font-semibold text-slate-500 hover:text-[#3FA9A8] px-2 py-1.5 transition cursor-pointer"
+          className="text-xs font-semibold text-slate-500 hover:text-[#3FA9A8] px-2 py-1.5 transition cursor-pointer flex items-center gap-1"
         >
-          Reset Filters
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Reset Filters</span>
         </button>
       </section>
       {/* END: Filter Toolbar */}
@@ -516,7 +628,11 @@ export const TransactionsView: React.FC = () => {
                 {paginatedTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-400">
-                      No transactions match the selected filters.
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileText className="w-8 h-8 text-slate-300" />
+                        <p className="font-semibold text-slate-600">No transactions match the selected filters.</p>
+                        <p className="text-[11px] text-slate-400">Try adjusting the date range, search query, or status.</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -548,7 +664,7 @@ export const TransactionsView: React.FC = () => {
 
                         {/* Time */}
                         <td className="py-3.5 px-3 text-slate-600 whitespace-nowrap">
-                          {formatTxTime(tx.timestamp)}
+                          {formatTxTime(tx.timestamp, baseTimestamp)}
                         </td>
 
                         {/* Type */}
@@ -725,7 +841,7 @@ export const TransactionsView: React.FC = () => {
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Date &amp; Timestamp</span>
-                <span className="font-semibold text-slate-700">{formatTxTime(activeTx.timestamp)}</span>
+                <span className="font-semibold text-slate-700">{formatTxTime(activeTx.timestamp, baseTimestamp)}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Order Type / Table</span>
@@ -851,13 +967,79 @@ export const TransactionsView: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-md p-6 text-center text-slate-400 text-xs">
-            Select a transaction from the list to view its audit details and receipt breakdown.
+          <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-md p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center space-y-2">
+            <FileText className="w-8 h-8 text-slate-300" />
+            <p className="font-semibold text-slate-600">Select a transaction from the list</p>
+            <p className="text-[11px] text-slate-400">View its audit details, itemized breakdown, and reprint receipts.</p>
           </div>
         )}
         {/* END: Right Side Detail Panel */}
       </section>
       {/* END: Detail Split View Layout */}
+
+      {/* BEGIN: Custom Date Range Modal */}
+      {showCustomDateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[#3FA9A8]" />
+                <h3 className="font-bold text-slate-800 text-sm">Select Custom Range</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomDateModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white text-slate-800"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowCustomDateModal(false)}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDateFilter('custom');
+                  setShowCustomDateModal(false);
+                  setCurrentPage(1);
+                }}
+                className="px-4 py-1.5 text-xs font-bold bg-[#3FA9A8] hover:bg-[#349695] text-white rounded-xl shadow-xs cursor-pointer"
+              >
+                Apply Range
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* END: Custom Date Range Modal */}
     </div>
   );
 };

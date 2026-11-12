@@ -3,12 +3,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { format } from 'date-fns';
 import type { ExpenseRecord } from '../../types';
+import { Calendar, X, TrendingUp, TrendingDown, RefreshCw, FileText, Download } from 'lucide-react';
 
 const INITIAL_EXPENSE_LIST: ExpenseRecord[] = [
   {
     id: '#EXP-2024-0041',
     description: 'Fresh Chicken 15kg & Spices for Biryani',
-    category: 'Kitchen Raw',
+    category: 'Kitchen Raw Supplies',
     amount: 9450,
     paymentMethod: 'Cash Drawer (St.1)',
     paymentSource: 'Cash Drawer (St.1)',
@@ -20,7 +21,7 @@ const INITIAL_EXPENSE_LIST: ExpenseRecord[] = [
   {
     id: '#EXP-2024-0040',
     description: 'Morning Milk 20 Litres (Fresh Buffalo)',
-    category: 'Dairy Supplies',
+    category: 'Dairy & Fresh Meat',
     amount: 3600,
     paymentMethod: 'Cash Drawer (St.1)',
     paymentSource: 'Cash Drawer (St.1)',
@@ -44,7 +45,7 @@ const INITIAL_EXPENSE_LIST: ExpenseRecord[] = [
   {
     id: '#EXP-2024-0038',
     description: 'Morning Shift Rusk, Tea & Sugar',
-    category: 'Staff Meals',
+    category: 'Staff Meals & Refreshments',
     amount: 650,
     paymentMethod: 'Cash Drawer (St.1)',
     paymentSource: 'Cash Drawer (St.1)',
@@ -57,8 +58,68 @@ const INITIAL_EXPENSE_LIST: ExpenseRecord[] = [
 
 const EMPTY_EXPENSES: ExpenseRecord[] = [];
 
+// Color mapping for progressive distribution bars
+const CATEGORY_BAR_COLORS = [
+  'bg-amber-500',
+  'bg-purple-500',
+  'bg-blue-500',
+  'bg-emerald-500',
+  'bg-teal-500',
+  'bg-rose-500',
+  'bg-indigo-500'
+];
+
+// Helper outside component to maintain render purity
+function formatVoucherTime(ts: number | undefined, baseTimestamp: number): string {
+  if (!ts) return format(new Date(baseTimestamp), 'dd MMM yyyy, hh:mm a');
+  try {
+    const d = new Date(ts);
+    const now = new Date(baseTimestamp);
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(baseTimestamp - 24 * 60 * 60 * 1000);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+
+    if (isToday) return `Today, ${format(d, 'hh:mm a')}`;
+    if (isYesterday) return `Yesterday, ${format(d, 'hh:mm a')}`;
+    return format(d, 'dd MMM yyyy, hh:mm a');
+  } catch {
+    return 'Recent';
+  }
+}
+
+function getCategoryBadge(cat?: string) {
+  const c = (cat || '').toLowerCase();
+  if (c.includes('kitchen') || c.includes('raw')) {
+    return { dot: 'bg-amber-500', pill: 'bg-amber-50 text-amber-700' };
+  }
+  if (c.includes('dairy') || c.includes('meat')) {
+    return { dot: 'bg-blue-500', pill: 'bg-blue-50 text-blue-700' };
+  }
+  if (c.includes('util') || c.includes('gas')) {
+    return { dot: 'bg-purple-500', pill: 'bg-purple-50 text-purple-700' };
+  }
+  if (c.includes('staff') || c.includes('meal')) {
+    return { dot: 'bg-emerald-500', pill: 'bg-emerald-50 text-emerald-700' };
+  }
+  return { dot: 'bg-slate-500', pill: 'bg-slate-100 text-slate-700' };
+}
+
 export const ExpensesView: React.FC = () => {
+  // Stable reference timestamp on mount
+  const [baseTimestamp] = useState(() => Date.now());
+
+  // Date Filtering states
   const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'custom'>('today');
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  });
+  const [customEndDate, setCustomEndDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+
+  // Operational filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
   const [selectedSourceFilter, setSelectedSourceFilter] = useState('all');
@@ -88,7 +149,7 @@ export const ExpensesView: React.FC = () => {
     }
   }, []) ?? EMPTY_EXPENSES;
 
-  // Active expenses: use live records if available, otherwise show the authentic 4 templates
+  // Active expenses: use live records if available, otherwise show the authentic templates
   const expenses: ExpenseRecord[] = useMemo(() => {
     if (liveExpenses && liveExpenses.length > 0) {
       return liveExpenses;
@@ -96,56 +157,140 @@ export const ExpensesView: React.FC = () => {
     return INITIAL_EXPENSE_LIST;
   }, [liveExpenses]);
 
-  // Calculations
-  const totalExpensesToday = useMemo(() => {
-    return expenses.reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
-  }, [expenses]);
+  // Compute active date boundaries
+  const { startTime, endTime, prevStartTime, prevEndTime, dateLabel, comparisonLabel } = useMemo(() => {
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const todayDate = new Date(baseTimestamp);
+    todayDate.setHours(0, 0, 0, 0);
+    const startOfToday = todayDate.getTime();
+    const endOfToday = startOfToday + oneDayMs - 1;
+
+    let start = 0;
+    let end = baseTimestamp;
+    let prevStart = 0;
+    let prevEnd = 0;
+    let label = '';
+    let compLabel = '';
+
+    if (dateFilter === 'today') {
+      start = startOfToday;
+      end = endOfToday;
+      prevStart = startOfToday - oneDayMs;
+      prevEnd = startOfToday - 1;
+      label = `Today (${format(new Date(baseTimestamp), 'dd MMM yyyy')})`;
+      compLabel = 'vs. yesterday';
+    } else if (dateFilter === 'week') {
+      start = baseTimestamp - 7 * oneDayMs;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 14 * oneDayMs;
+      prevEnd = baseTimestamp - 7 * oneDayMs;
+      label = `Last 7 Days (${format(start, 'dd MMM')} - ${format(end, 'dd MMM yyyy')})`;
+      compLabel = 'vs. prior 7d';
+    } else if (dateFilter === 'month') {
+      start = baseTimestamp - 30 * oneDayMs;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 60 * oneDayMs;
+      prevEnd = baseTimestamp - 30 * oneDayMs;
+      label = `Last 30 Days (${format(start, 'dd MMM')} - ${format(end, 'dd MMM yyyy')})`;
+      compLabel = 'vs. prior 30d';
+    } else {
+      const s = new Date(`${customStartDate}T00:00:00`);
+      const e = new Date(`${customEndDate}T23:59:59.999`);
+      start = isNaN(s.getTime()) ? baseTimestamp - 7 * oneDayMs : s.getTime();
+      end = isNaN(e.getTime()) ? baseTimestamp : e.getTime();
+      const span = Math.max(oneDayMs, end - start);
+      prevStart = start - span;
+      prevEnd = start;
+      label = `Custom (${customStartDate} to ${customEndDate})`;
+      compLabel = 'vs. prior period';
+    }
+
+    return {
+      startTime: start,
+      endTime: end,
+      prevStartTime: prevStart,
+      prevEndTime: prevEnd,
+      dateLabel: label,
+      comparisonLabel: compLabel
+    };
+  }, [dateFilter, customStartDate, customEndDate, baseTimestamp]);
+
+  // Date-window scoped expenses
+  const dateRangeExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const ts = e.timestamp || 0;
+      return ts >= startTime && ts <= endTime;
+    });
+  }, [expenses, startTime, endTime]);
+
+  const prevRangeExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const ts = e.timestamp || 0;
+      return ts >= prevStartTime && ts <= prevEndTime;
+    });
+  }, [expenses, prevStartTime, prevEndTime]);
+
+  // Key metrics calculations based on date window
+  const totalExpensesWindow = useMemo(() => {
+    return dateRangeExpenses.reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
+  }, [dateRangeExpenses]);
+
+  const prevTotalExpenses = useMemo(() => {
+    return prevRangeExpenses.reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
+  }, [prevRangeExpenses]);
+
+  const expenseTrend = useMemo(() => {
+    if (prevTotalExpenses === 0) return { pct: totalExpensesWindow > 0 ? 100 : 0, isUp: totalExpensesWindow >= 0 };
+    const diff = totalExpensesWindow - prevTotalExpenses;
+    const pct = Math.round((diff / prevTotalExpenses) * 100);
+    return { pct: Math.abs(pct), isUp: diff >= 0 };
+  }, [totalExpensesWindow, prevTotalExpenses]);
 
   const cashDrawerReduction = useMemo(() => {
-    return expenses
+    return dateRangeExpenses
       .filter((e) => {
         const src = (e?.paymentSource || e?.paymentMethod || '').toLowerCase();
         return src.includes('cash') || src.includes('drawer') || src.includes('st.1');
       })
       .reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
-  }, [expenses]);
+  }, [dateRangeExpenses]);
 
   const pettyCashReduction = useMemo(() => {
-    return expenses
+    return dateRangeExpenses
       .filter((e) => {
         const src = (e?.paymentSource || e?.paymentMethod || '').toLowerCase();
         return src.includes('petty');
       })
       .reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
-  }, [expenses]);
+  }, [dateRangeExpenses]);
 
-  // Category breakdown
+  // Dynamic Category breakdown for active date window
   const categoryBreakdown = useMemo(() => {
     const map: Record<string, number> = {};
-    expenses.forEach((e) => {
-      const cat = e?.category || 'Other';
+    dateRangeExpenses.forEach((e) => {
+      const cat = e?.category || 'General Operations';
       map[cat] = (map[cat] || 0) + (Number(e?.amount) || 0);
     });
 
     const entries = Object.entries(map).map(([name, sum]) => ({
       name,
       amount: sum,
-      pct: totalExpensesToday > 0 ? ((sum / totalExpensesToday) * 100).toFixed(1) : '0',
+      pct: totalExpensesWindow > 0 ? Math.round((sum / totalExpensesWindow) * 100) : 0,
     }));
 
     entries.sort((a, b) => b.amount - a.amount);
     return entries;
-  }, [expenses, totalExpensesToday]);
+  }, [dateRangeExpenses, totalExpensesWindow]);
 
   const topCategory = categoryBreakdown[0] || {
-    name: 'Kitchen Raw Supplies',
-    amount: 11400,
-    pct: '62.6',
+    name: 'No Outlays Recorded',
+    amount: 0,
+    pct: 0,
   };
 
   // Filtered expenses list
   const filteredExpenses = useMemo(() => {
-    let list = [...expenses];
+    let list = [...dateRangeExpenses];
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -174,7 +319,7 @@ export const ExpensesView: React.FC = () => {
     }
 
     return list;
-  }, [expenses, searchQuery, selectedCategoryFilter, selectedSourceFilter]);
+  }, [dateRangeExpenses, searchQuery, selectedCategoryFilter, selectedSourceFilter]);
 
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,32 +376,26 @@ export const ExpensesView: React.FC = () => {
     setSearchQuery('');
     setSelectedCategoryFilter('all');
     setSelectedSourceFilter('all');
+    setDateFilter('today');
   };
 
-  const getCategoryBadge = (cat?: string) => {
-    const c = (cat || '').toLowerCase();
-    if (c.includes('kitchen') || c.includes('raw')) {
-      return { dot: 'bg-amber-500', pill: 'bg-amber-50 text-amber-700' };
-    }
-    if (c.includes('dairy') || c.includes('meat')) {
-      return { dot: 'bg-blue-500', pill: 'bg-blue-50 text-blue-700' };
-    }
-    if (c.includes('util') || c.includes('gas')) {
-      return { dot: 'bg-purple-500', pill: 'bg-purple-50 text-purple-700' };
-    }
-    if (c.includes('staff') || c.includes('meal')) {
-      return { dot: 'bg-emerald-500', pill: 'bg-emerald-50 text-emerald-700' };
-    }
-    return { dot: 'bg-slate-500', pill: 'bg-slate-100 text-slate-700' };
-  };
-
-  const formatVoucherTime = (ts?: number) => {
-    if (!ts) return 'Today, 05:40 PM';
-    try {
-      return `Today, ${format(new Date(ts), 'hh:mm a')}`;
-    } catch {
-      return 'Today, 05:40 PM';
-    }
+  const handleExportCSV = () => {
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      'Voucher_ID,Timestamp,Category,Description,Vendor,Payment_Source,Amount_PKR,Receipt_Ref\n' +
+      filteredExpenses
+        .map(
+          (e) =>
+            `${e.id},"${new Date(e.timestamp || baseTimestamp).toISOString()}","${e.category.replace(/"/g, '""')}","${e.description.replace(/"/g, '""')}","${(e.vendor || '').replace(/"/g, '""')}","${e.paymentSource || e.paymentMethod}",${e.amount},"${e.receiptNumber || ''}"`
+        )
+        .join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `DinePos_Expenses_${dateFilter}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   return (
@@ -265,11 +404,12 @@ export const ExpensesView: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-800 tracking-tight font-headline">Expenses</h1>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight font-headline">Expenses &amp; Operating Outlays</h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700">Audit Desk</span>
           </div>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Track restaurant operating expenses, monitor kitchen outlays, and review spending vouchers.
+            Track restaurant operating expenses, monitor kitchen outlays, and review spending vouchers for{' '}
+            <strong className="text-slate-700">{dateLabel}</strong>.
           </p>
         </div>
         <div className="flex items-center flex-wrap gap-2.5">
@@ -303,23 +443,34 @@ export const ExpensesView: React.FC = () => {
               This Month
             </button>
             <button
-              onClick={() => setDateFilter('custom')}
-              className={`px-3 py-1.5 rounded-lg flex items-center gap-1 transition cursor-pointer ${
+              onClick={() => {
+                setDateFilter('custom');
+                setShowCustomDateModal(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer ${
                 dateFilter === 'custom' ? 'bg-[#3FA9A8] text-white font-semibold shadow-sm' : 'hover:text-slate-900'
               }`}
               type="button"
             >
+              <Calendar className="w-3.5 h-3.5" />
               <span>Custom</span>
-              <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
             </button>
           </div>
 
-          {/* Export Action */}
+          {/* Export CSV Action */}
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold shadow-sm border border-slate-200 transition cursor-pointer"
+            type="button"
+          >
+            <Download className="w-4 h-4 text-slate-500" />
+            <span>Export CSV</span>
+          </button>
+
+          {/* Print Summary Action */}
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold shadow-sm border border-slate-200 transition cursor-pointer"
             type="button"
           >
             <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -359,27 +510,25 @@ export const ExpensesView: React.FC = () => {
                 <line x1="11" x2="13" y1="15" y2="15"></line>
               </svg>
             </div>
-            <button className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer" type="button">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="1.5"></circle>
-                <circle cx="12" cy="12" r="1.5"></circle>
-                <circle cx="12" cy="19" r="1.5"></circle>
-              </svg>
-            </button>
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+              {dateFilter.toUpperCase()}
+            </span>
           </div>
           <div className="mt-4">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Expenses (Today)</span>
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Expenses ({dateFilter})</span>
             <div className="flex items-baseline gap-2 mt-1">
               <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight font-display">
-                Rs. {totalExpensesToday.toLocaleString()}
+                Rs. {totalExpensesWindow.toLocaleString()}
               </h2>
-              <span className="text-[11px] font-semibold text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                +4.2%
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${expenseTrend.isUp ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                {expenseTrend.isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                <span>{expenseTrend.pct}%</span>
+                <span className="text-slate-400 font-normal">{comparisonLabel}</span>
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-2 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-teal-500"></span>
-              <span>{expenses.length} vouchers logged in drawer today</span>
+              <span>{dateRangeExpenses.length} vouchers logged in selected period</span>
             </p>
           </div>
           <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-teal-50/50 rounded-full blur-xl pointer-events-none"></div>
@@ -397,23 +546,16 @@ export const ExpensesView: React.FC = () => {
                 <polyline points="10 9 9 9 8 9"></polyline>
               </svg>
             </div>
-            <button className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer" type="button">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="1.5"></circle>
-                <circle cx="12" cy="12" r="1.5"></circle>
-                <circle cx="12" cy="19" r="1.5"></circle>
-              </svg>
-            </button>
+            <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+              Synchronized
+            </span>
           </div>
           <div className="mt-4">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Expense Records</span>
             <div className="flex items-baseline gap-2 mt-1">
               <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight font-display">
-                {expenses.length} Vouchers
+                {dateRangeExpenses.length} Vouchers
               </h2>
-              <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                Synchronized
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
@@ -423,7 +565,7 @@ export const ExpensesView: React.FC = () => {
                   fillRule="evenodd"
                 ></path>
               </svg>
-              <span>All audited by John Doe (Admin)</span>
+              <span>Audit verified by John Doe (Admin)</span>
             </p>
           </div>
           <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-emerald-50/40 rounded-full blur-xl pointer-events-none"></div>
@@ -442,7 +584,7 @@ export const ExpensesView: React.FC = () => {
               </svg>
             </div>
             <span className="text-[10px] font-bold text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-full uppercase tracking-wider">
-              Top Drain
+              Top Outlay
             </span>
           </div>
           <div className="mt-4">
@@ -455,7 +597,7 @@ export const ExpensesView: React.FC = () => {
             <p className="text-xs text-slate-500 mt-2 flex items-center justify-between">
               <span className="font-semibold text-slate-700">Rs. {topCategory.amount.toLocaleString()}</span>
               <span className="text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded-md">
-                {topCategory.pct}% of Today
+                {topCategory.pct}% of period
               </span>
             </p>
           </div>
@@ -525,22 +667,15 @@ export const ExpensesView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Controls: Classification badge & Reset */}
+        {/* Right Controls: Reset Action */}
         <div className="flex items-center gap-3 w-full lg:w-auto justify-end">
-          <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-medium">
-            <svg className="w-3.5 h-3.5 text-[#3FA9A8]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" x2="12" y1="16" y2="12"></line>
-              <line x1="12" x2="12.01" y1="8" y2="8"></line>
-            </svg>
-            <span>Strict OPEX Journal</span>
-          </div>
           <button
             onClick={handleResetFilters}
-            className="text-xs font-semibold text-[#3FA9A8] hover:text-[#2A6F70] hover:underline px-2 py-1 transition cursor-pointer"
+            className="text-xs font-semibold text-slate-500 hover:text-[#3FA9A8] px-2 py-1 transition cursor-pointer flex items-center gap-1"
             type="button"
           >
-            Reset Filters
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Reset Filters</span>
           </button>
         </div>
       </div>
@@ -552,12 +687,12 @@ export const ExpensesView: React.FC = () => {
           {/* Table Header Bar */}
           <div className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100">
             <div>
-              <h2 className="text-sm font-bold text-slate-800 tracking-tight">Today&apos;s Expense Journal</h2>
-              <p className="text-[11px] text-slate-400">Authenticated vouchers recorded via POS Station 1</p>
+              <h2 className="text-sm font-bold text-slate-800 tracking-tight">Expense Audit Journal</h2>
+              <p className="text-[11px] text-slate-400">Authenticated vouchers recorded for {dateLabel}</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded-lg">
-                Showing {filteredExpenses.length} of {expenses.length} Today
+                Showing {filteredExpenses.length} of {dateRangeExpenses.length} Vouchers
               </span>
             </div>
           </div>
@@ -580,7 +715,11 @@ export const ExpensesView: React.FC = () => {
                 {filteredExpenses.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-400 font-normal">
-                      No expense records matching the active filter criteria.
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileText className="w-8 h-8 text-slate-300" />
+                        <p className="font-semibold text-slate-600">No expense vouchers match the selected filter criteria.</p>
+                        <p className="text-[11px] text-slate-400">Try selecting a different date range or category.</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -594,7 +733,7 @@ export const ExpensesView: React.FC = () => {
                             {exp.id}
                           </span>
                           <span className="text-[10px] text-slate-400">
-                            {formatVoucherTime(exp.timestamp)}
+                            {formatVoucherTime(exp.timestamp, baseTimestamp)}
                           </span>
                         </td>
 
@@ -616,7 +755,7 @@ export const ExpensesView: React.FC = () => {
 
                         {/* Vendor / Payee */}
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="text-slate-800 font-medium">{exp.vendor || exp.loggedBy || 'Madina Poultry Farm'}</span>
+                          <span className="text-slate-800 font-medium">{exp.vendor || exp.loggedBy || 'Direct Supplier'}</span>
                         </td>
 
                         {/* Drawer / Source */}
@@ -695,7 +834,7 @@ export const ExpensesView: React.FC = () => {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-slate-600 font-medium">Reconciled Sum:</span>
-              <span className="text-base font-extrabold text-[#3FA9A8]">Rs. {totalExpensesToday.toLocaleString()}</span>
+              <span className="text-base font-extrabold text-[#3FA9A8]">Rs. {totalExpensesWindow.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -772,7 +911,7 @@ export const ExpensesView: React.FC = () => {
                   className="w-full text-xs font-semibold text-slate-500 px-3 py-2 bg-slate-100 border-0 rounded-xl cursor-not-allowed outline-none"
                   readOnly
                   type="text"
-                  value="Today, 09:15 PM"
+                  value={format(new Date(baseTimestamp), 'dd MMM, hh:mm a')}
                 />
               </div>
             </div>
@@ -932,60 +1071,35 @@ export const ExpensesView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold text-slate-800">Expense Distribution by Category</h3>
-              <p className="text-xs text-slate-400">Share of Rs. {totalExpensesToday.toLocaleString()} recorded today</p>
+              <p className="text-xs text-slate-400">Share of Rs. {totalExpensesWindow.toLocaleString()} recorded in {dateFilter}</p>
             </div>
             <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded-md">Live Split</span>
           </div>
 
-          {/* Progress Bars */}
+          {/* Dynamic Progress Bars */}
           <div className="space-y-3 text-xs">
-            <div>
-              <div className="flex justify-between font-semibold mb-1">
-                <span className="text-slate-700">Kitchen Raw Supplies</span>
-                <span className="text-slate-900">
-                  Rs. 9,450 <span className="text-slate-400 font-normal">(51.9%)</span>
-                </span>
+            {categoryBreakdown.length === 0 ? (
+              <div className="py-6 text-center text-slate-400">
+                No expense category records in this timeframe.
               </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: '51.9%' }}></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between font-semibold mb-1">
-                <span className="text-slate-700">Utilities &amp; LPG Gas</span>
-                <span className="text-slate-900">
-                  Rs. 4,500 <span className="text-slate-400 font-normal">(24.7%)</span>
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-purple-500 rounded-full transition-all duration-500" style={{ width: '24.7%' }}></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between font-semibold mb-1">
-                <span className="text-slate-700">Dairy Supplies</span>
-                <span className="text-slate-900">
-                  Rs. 3,600 <span className="text-slate-400 font-normal">(19.8%)</span>
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: '19.8%' }}></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between font-semibold mb-1">
-                <span className="text-slate-700">Staff Meals &amp; Welfare</span>
-                <span className="text-slate-900">
-                  Rs. 650 <span className="text-slate-400 font-normal">(3.6%)</span>
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: '3.6%' }}></div>
-              </div>
-            </div>
+            ) : (
+              categoryBreakdown.map((cat, idx) => (
+                <div key={cat.name}>
+                  <div className="flex justify-between font-semibold mb-1">
+                    <span className="text-slate-700">{cat.name}</span>
+                    <span className="text-slate-900">
+                      Rs. {cat.amount.toLocaleString()} <span className="text-slate-400 font-normal">({cat.pct}%)</span>
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${CATEGORY_BAR_COLORS[idx % CATEGORY_BAR_COLORS.length]}`}
+                      style={{ width: `${Math.min(100, Math.max(3, cat.pct))}%` }}
+                    ></div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -1021,6 +1135,69 @@ export const ExpensesView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* BEGIN: Custom Date Range Modal */}
+      {showCustomDateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[#3FA9A8]" />
+                <h3 className="font-bold text-slate-800 text-sm">Select Custom Range</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomDateModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white text-slate-800"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowCustomDateModal(false)}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDateFilter('custom');
+                  setShowCustomDateModal(false);
+                }}
+                className="px-4 py-1.5 text-xs font-bold bg-[#3FA9A8] hover:bg-[#349695] text-white rounded-xl shadow-xs cursor-pointer"
+              >
+                Apply Range
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* END: Custom Date Range Modal */}
     </div>
   );
 };
