@@ -5,13 +5,19 @@ import {
   Printer,
   X,
   Search,
-  Filter
+  Filter,
+  ArrowUpRight,
+  ArrowDownRight,
+  Calendar,
+  DollarSign,
+  Receipt,
+  ShoppingBag,
+  PieChart
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { useUIStore } from '../../store/useUIStore';
-import { INITIAL_TRANSACTIONS } from '../../db/seedData';
-import type { Transaction } from '../../types';
+import type { Transaction, ExpenseRecord } from '../../types';
 
 interface ChartPoint {
   label: string;
@@ -25,7 +31,12 @@ interface ChartPoint {
 }
 
 const EMPTY_DASH_TRANSACTIONS: Transaction[] = [];
-const EMPTY_DASH_EXPENSES: any[] = [];
+const EMPTY_DASH_EXPENSES: ExpenseRecord[] = [];
+
+// Format PKR Currency
+const formatPKR = (amount: number): string => {
+  return `Rs. ${Math.round(amount).toLocaleString('en-PK')}`;
+};
 
 export const DashboardView: React.FC = () => {
   const { 
@@ -37,14 +48,18 @@ export const DashboardView: React.FC = () => {
     setCashMovementType
   } = useUIStore();
 
+  // Stable reference timestamp on mount
+  const [baseTimestamp] = useState(() => Date.now());
+
   // Active filters and states
   const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'custom'>('today');
+  const [customRangeDays, setCustomRangeDays] = useState<number>(7);
   const [customRangeLabel, setCustomRangeLabel] = useState('Last 7 Days');
   const [customDropdownOpen, setCustomDropdownOpen] = useState(false);
   const [activeKpiMenu, setActiveKpiMenu] = useState<number | null>(null);
 
-  // Chart hover & interaction state (default to peak index 5 = 9 PM)
-  const [hoveredPointIndex, setHoveredPointIndex] = useState<number>(5);
+  // Chart hover & interaction state
+  const [hoveredPointIndex, setHoveredPointIndex] = useState<number>(4);
   const [isChartHovered, setIsChartHovered] = useState<boolean>(false);
 
   // Donut hover & filter state
@@ -62,109 +77,258 @@ export const DashboardView: React.FC = () => {
   const liveTransactions = useLiveQuery(() => db.transactions.toArray(), []) ?? EMPTY_DASH_TRANSACTIONS;
   const liveExpenses = useLiveQuery(() => db.expenses.toArray(), []) ?? EMPTY_DASH_EXPENSES;
 
-  // Multi-timeframe dynamic dataset modeling
-  const metricsData = useMemo(() => {
-    let baseSales = 148450;
-    let baseOrders = 184;
-    let baseExpenses = 18200;
-    let baseVouchers = 4;
-    let salesTrend = 12.5;
-    let ordersTrend = 8.2;
-    let billTrend = 3.1;
-    let periodName = 'yesterday';
+  // Compute active date boundaries
+  const { startTime, endTime, prevStartTime, prevEndTime, periodLabel, periodName } = useMemo(() => {
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    let start = 0;
+    let end = baseTimestamp;
+    let prevStart = 0;
+    let prevEnd = 0;
+    let pName = 'yesterday';
+    let pLabel = '';
 
-    if (dateFilter === 'week') {
-      baseSales = 984200;
-      baseOrders = 1240;
-      baseExpenses = 112500;
-      baseVouchers = 26;
-      salesTrend = 14.8;
-      ordersTrend = 9.4;
-      billTrend = 4.2;
-      periodName = 'last week';
+    const todayDate = new Date(baseTimestamp);
+    todayDate.setHours(0, 0, 0, 0);
+    const startOfToday = todayDate.getTime();
+
+    if (dateFilter === 'today') {
+      start = startOfToday;
+      end = baseTimestamp;
+      prevStart = startOfToday - oneDayMs;
+      prevEnd = startOfToday - 1;
+      pName = 'yesterday';
+      pLabel = `Today (${new Date(baseTimestamp).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' })})`;
+    } else if (dateFilter === 'week') {
+      start = baseTimestamp - 7 * oneDayMs;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 14 * oneDayMs;
+      prevEnd = baseTimestamp - 7 * oneDayMs;
+      pName = 'last week';
+      pLabel = 'Last 7 Days';
     } else if (dateFilter === 'month') {
-      baseSales = 4215800;
-      baseOrders = 5420;
-      baseExpenses = 485000;
-      baseVouchers = 108;
-      salesTrend = 18.2;
-      ordersTrend = 11.6;
-      billTrend = 5.8;
-      periodName = 'last month';
-    } else if (dateFilter === 'custom') {
-      baseSales = 642800;
-      baseOrders = 810;
-      baseExpenses = 78400;
-      baseVouchers = 18;
-      salesTrend = 10.4;
-      ordersTrend = 7.1;
-      billTrend = 2.9;
-      periodName = 'prior period';
+      start = baseTimestamp - 30 * oneDayMs;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 60 * oneDayMs;
+      prevEnd = baseTimestamp - 30 * oneDayMs;
+      pName = 'last month';
+      pLabel = 'Last 30 Days';
+    } else {
+      const span = customRangeDays * oneDayMs;
+      start = baseTimestamp - span;
+      end = baseTimestamp;
+      prevStart = baseTimestamp - 2 * span;
+      prevEnd = baseTimestamp - span;
+      pName = 'prior period';
+      pLabel = customRangeLabel;
     }
 
-    const liveTodaySales = liveTransactions.reduce((sum, tx) => sum + (tx.total || 0), 0);
-    const liveTodayOrders = liveTransactions.length;
-    const liveTodayExpenses = liveExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
-    const liveTodayVouchers = liveExpenses.length;
+    return {
+      startTime: start,
+      endTime: end,
+      prevStartTime: prevStart,
+      prevEndTime: prevEnd,
+      periodLabel: pLabel,
+      periodName: pName
+    };
+  }, [dateFilter, customRangeDays, customRangeLabel, baseTimestamp]);
 
-    const effectiveSales = Math.max(baseSales, baseSales + (liveTodaySales > 30000 ? liveTodaySales - 30000 : 0));
-    const effectiveOrders = Math.max(baseOrders, baseOrders + (liveTodayOrders > 12 ? liveTodayOrders - 12 : 0));
-    const effectiveAvgBill = effectiveOrders > 0 ? effectiveSales / effectiveOrders : 0;
-    const effectiveExpenses = Math.max(baseExpenses, baseExpenses + (liveTodayExpenses > 18200 ? liveTodayExpenses - 18200 : 0));
-    const effectiveVouchers = Math.max(baseVouchers, baseVouchers + (liveTodayVouchers > 4 ? liveTodayVouchers - 4 : 0));
+  // Filtered transactions for current and previous period
+  const filteredTransactions = useMemo(() => {
+    return liveTransactions.filter((tx) => tx.timestamp >= startTime && tx.timestamp <= endTime);
+  }, [liveTransactions, startTime, endTime]);
+
+  const prevFilteredTransactions = useMemo(() => {
+    return liveTransactions.filter((tx) => tx.timestamp >= prevStartTime && tx.timestamp <= prevEndTime);
+  }, [liveTransactions, prevStartTime, prevEndTime]);
+
+  // Filtered expenses for current period
+  const filteredExpenses = useMemo(() => {
+    return liveExpenses.filter((exp) => exp.timestamp >= startTime && exp.timestamp <= endTime);
+  }, [liveExpenses, startTime, endTime]);
+
+  // Completed transactions
+  const completedTx = useMemo(() => {
+    return filteredTransactions.filter((t) => t.status === 'completed');
+  }, [filteredTransactions]);
+
+  const prevCompletedTx = useMemo(() => {
+    return prevFilteredTransactions.filter((t) => t.status === 'completed');
+  }, [prevFilteredTransactions]);
+
+  // Authentic Key Performance Indicators (KPIs)
+  const metricsData = useMemo(() => {
+    const sales = completedTx.reduce((sum, tx) => sum + (tx.total || 0), 0);
+    const orders = completedTx.length;
+    const avgBill = orders > 0 ? Math.round(sales / orders) : 0;
+    const expenses = filteredExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+    const vouchers = filteredExpenses.length;
+
+    // Previous period comparative trends
+    const prevSales = prevCompletedTx.reduce((sum, tx) => sum + (tx.total || 0), 0);
+    const prevOrders = prevCompletedTx.length;
+    const prevAvgBill = prevOrders > 0 ? Math.round(prevSales / prevOrders) : 0;
+
+    const salesTrend = prevSales > 0 ? Number((((sales - prevSales) / prevSales) * 100).toFixed(1)) : 0;
+    const ordersTrend = prevOrders > 0 ? Number((((orders - prevOrders) / prevOrders) * 100).toFixed(1)) : 0;
+    const billTrend = prevAvgBill > 0 ? Number((((avgBill - prevAvgBill) / prevAvgBill) * 100).toFixed(1)) : 0;
 
     return {
-      sales: effectiveSales,
-      orders: effectiveOrders,
-      avgBill: effectiveAvgBill,
-      expenses: effectiveExpenses,
-      vouchers: effectiveVouchers,
+      sales,
+      orders,
+      avgBill,
+      expenses,
+      vouchers,
       salesTrend,
       ordersTrend,
       billTrend,
       periodName
     };
-  }, [dateFilter, liveTransactions, liveExpenses]);
+  }, [completedTx, prevCompletedTx, filteredExpenses, periodName]);
 
-  // Chart Points tailored to active timeframe
-  const chartPoints: ChartPoint[] = useMemo(() => {
-    if (dateFilter === 'today') {
-      return [
-        { label: '11 AM', time: '11:00 AM', sales: 8200, orders: 11, tag: 'Morning Opening', x: 0, y: 170, pctX: 0 },
-        { label: '1 PM', time: '01:00 PM', sales: 18500, orders: 24, tag: 'Lunch Rush', x: 116, y: 140, pctX: 16.6 },
-        { label: '3 PM', time: '03:00 PM', sales: 21300, orders: 28, tag: 'Afternoon Lull', x: 233, y: 125, pctX: 33.3 },
-        { label: '5 PM', time: '05:00 PM', sales: 26800, orders: 35, tag: 'Tea & Snacks', x: 350, y: 110, pctX: 50.0 },
-        { label: '7 PM', time: '07:00 PM', sales: 32400, orders: 40, tag: 'Dinner Start', x: 466, y: 75, pctX: 66.6 },
-        { label: '9 PM (Peak)', time: '08:45 PM', sales: 38400, orders: 46, tag: 'Peak Dinnertime', x: 583, y: 28, pctX: 83.3 },
-        { label: '11 PM', time: '11:00 PM', sales: 22850, orders: 27, tag: 'Late Night Wrap', x: 700, y: 70, pctX: 100 },
-      ];
-    } else if (dateFilter === 'week') {
-      return [
-        { label: 'Mon', time: 'Monday', sales: 112000, orders: 142, tag: 'Weekday Opener', x: 0, y: 160, pctX: 0 },
-        { label: 'Tue', time: 'Tuesday', sales: 124500, orders: 158, tag: 'Steady Midweek', x: 116, y: 145, pctX: 16.6 },
-        { label: 'Wed', time: 'Wednesday', sales: 135000, orders: 172, tag: 'Corporate Lunch', x: 233, y: 130, pctX: 33.3 },
-        { label: 'Thu', time: 'Thursday', sales: 142000, orders: 180, tag: 'Pre-Weekend', x: 350, y: 115, pctX: 50.0 },
-        { label: 'Fri', time: 'Friday', sales: 168000, orders: 210, tag: 'Friday Family Dine', x: 466, y: 65, pctX: 66.6 },
-        { label: 'Sat (Peak)', time: 'Saturday', sales: 185000, orders: 232, tag: 'Weekend Super Peak', x: 583, y: 22, pctX: 83.3 },
-        { label: 'Sun', time: 'Sunday', sales: 162700, orders: 202, tag: 'Sunday Evening', x: 700, y: 55, pctX: 100 },
-      ];
-    } else if (dateFilter === 'month') {
-      return [
-        { label: 'Week 1', time: 'Days 1 - 7', sales: 940000, orders: 1180, tag: 'First Week Surge', x: 0, y: 140, pctX: 0 },
-        { label: 'Week 2', time: 'Days 8 - 14', sales: 1020000, orders: 1290, tag: 'Mid-Month Flow', x: 233, y: 110, pctX: 33.3 },
-        { label: 'Week 3 (Peak)', time: 'Days 15 - 21', sales: 1180000, orders: 1490, tag: 'Salary Week Peak', x: 466, y: 35, pctX: 66.6 },
-        { label: 'Week 4', time: 'Days 22 - 30', sales: 1075800, orders: 1360, tag: 'Month-End Closing', x: 700, y: 80, pctX: 100 },
-      ];
-    } else {
-      return [
-        { label: 'Day 1', time: 'Day 1', sales: 88000, orders: 110, tag: 'Period Start', x: 0, y: 150, pctX: 0 },
-        { label: 'Day 2', time: 'Day 2', sales: 96000, orders: 122, tag: 'Normal Volume', x: 175, y: 130, pctX: 25 },
-        { label: 'Day 3', time: 'Day 3', sales: 115000, orders: 145, tag: 'High Volume', x: 350, y: 90, pctX: 50 },
-        { label: 'Day 4 (Peak)', time: 'Day 4', sales: 138000, orders: 175, tag: 'Custom Peak', x: 525, y: 30, pctX: 75 },
-        { label: 'Day 5', time: 'Day 5', sales: 105800, orders: 134, tag: 'Period Close', x: 700, y: 100, pctX: 100 },
-      ];
+  // Dynamic Chart Points Engine based on actual completed transactions
+  const { chartPoints, pathD, areaD } = useMemo(() => {
+    interface BucketDef {
+      label: string;
+      time: string;
+      tag: string;
+      filterFn: (tx: Transaction) => boolean;
     }
-  }, [dateFilter]);
+
+    let buckets: BucketDef[] = [];
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    if (dateFilter === 'today') {
+      // 7 2-hour intervals covering the restaurant operating schedule
+      const slots = [
+        { label: '10 AM', time: '10:00 AM - 12:00 PM', tag: 'Morning Prep', minH: 9, maxH: 11 },
+        { label: '12 PM', time: '12:00 PM - 02:00 PM', tag: 'Lunch Rush', minH: 11, maxH: 13 },
+        { label: '2 PM', time: '02:00 PM - 04:00 PM', tag: 'Afternoon Flow', minH: 13, maxH: 15 },
+        { label: '4 PM', time: '04:00 PM - 06:00 PM', tag: 'Tea & Snacks', minH: 15, maxH: 17 },
+        { label: '6 PM', time: '06:00 PM - 08:00 PM', tag: 'Evening Rush', minH: 17, maxH: 19 },
+        { label: '8 PM', time: '08:00 PM - 10:00 PM', tag: 'Peak Dinner', minH: 19, maxH: 21 },
+        { label: '10 PM', time: '10:00 PM - Midnight', tag: 'Late Closing', minH: 21, maxH: 24 },
+      ];
+
+      buckets = slots.map((s) => ({
+        label: s.label,
+        time: s.time,
+        tag: s.tag,
+        filterFn: (tx) => {
+          const h = new Date(tx.timestamp).getHours();
+          return h >= s.minH && h < s.maxH;
+        }
+      }));
+    } else if (dateFilter === 'week') {
+      // 7 consecutive days for the weekly trajectory
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      buckets = [6, 5, 4, 3, 2, 1, 0].map((daysAgo) => {
+        const d = new Date(baseTimestamp - daysAgo * oneDayMs);
+        const dayName = days[(d.getDay() + 6) % 7];
+        const dateStr = d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' });
+        const startDay = new Date(d).setHours(0, 0, 0, 0);
+        const endDay = startDay + oneDayMs - 1;
+
+        return {
+          label: daysAgo === 0 ? 'Today' : dayName,
+          time: dateStr,
+          tag: daysAgo === 0 ? 'Current Day' : `${dayName} Session`,
+          filterFn: (tx) => tx.timestamp >= startDay && tx.timestamp <= endDay
+        };
+      });
+    } else if (dateFilter === 'month') {
+      // 4 distinct weekly slices for monthly view
+      buckets = [
+        { label: 'Week 1', time: 'Days 1 - 7', tag: 'Opening Week', daysStart: 28, daysEnd: 21 },
+        { label: 'Week 2', time: 'Days 8 - 14', tag: 'Mid-Month 1', daysStart: 21, daysEnd: 14 },
+        { label: 'Week 3', time: 'Days 15 - 21', tag: 'Mid-Month 2', daysStart: 14, daysEnd: 7 },
+        { label: 'Week 4', time: 'Days 22 - 30', tag: 'Month-End', daysStart: 7, daysEnd: 0 },
+      ].map((b) => ({
+        label: b.label,
+        time: b.time,
+        tag: b.tag,
+        filterFn: (tx) => {
+          const startSlice = baseTimestamp - b.daysStart * oneDayMs;
+          const endSlice = baseTimestamp - b.daysEnd * oneDayMs;
+          return tx.timestamp >= startSlice && tx.timestamp <= endSlice;
+        }
+      }));
+    } else {
+      // Custom 5 slice partition
+      const totalSpan = endTime - startTime;
+      const sliceCount = 5;
+      const sliceSpan = totalSpan / sliceCount;
+
+      buckets = Array.from({ length: sliceCount }).map((_, i) => {
+        const sStart = startTime + i * sliceSpan;
+        const sEnd = startTime + (i + 1) * sliceSpan;
+        const dLabel = new Date(sStart).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' });
+
+        return {
+          label: dLabel,
+          time: `${new Date(sStart).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' })}`,
+          tag: `Period Segment ${i + 1}`,
+          filterFn: (tx) => tx.timestamp >= sStart && tx.timestamp <= sEnd
+        };
+      });
+    }
+
+    // Tally metrics per bucket
+    const bucketValues = buckets.map((b) => {
+      const bucketTx = completedTx.filter(b.filterFn);
+      const sales = bucketTx.reduce((sum, tx) => sum + (tx.total || 0), 0);
+      const orders = bucketTx.length;
+      return {
+        ...b,
+        sales,
+        orders
+      };
+    });
+
+    const maxSales = Math.max(...bucketValues.map((b) => b.sales), 1000);
+    const count = bucketValues.length;
+
+    // Generate chart points with responsive coordinates
+    const points: ChartPoint[] = bucketValues.map((b, idx) => {
+      const pctX = count > 1 ? (idx / (count - 1)) * 100 : 50;
+      const x = Math.round((pctX / 100) * 700);
+      // Map sales to Y between 30 (peak) and 165 (zero)
+      const ratio = b.sales / maxSales;
+      const y = Math.round(165 - ratio * 135);
+
+      return {
+        label: b.label,
+        time: b.time,
+        sales: b.sales,
+        orders: b.orders,
+        tag: ratio >= 0.8 && b.sales > 0 ? `${b.tag} (Peak)` : b.tag,
+        x,
+        y,
+        pctX: Number(pctX.toFixed(1))
+      };
+    });
+
+    // Generate smooth cubic bezier SVG curve
+    const generatedPath = points.reduce((acc, pt, i, arr) => {
+      if (i === 0) return `M ${pt.x},${pt.y}`;
+      const prev = arr[i - 1];
+      const cpX1 = prev.x + (pt.x - prev.x) / 2;
+      const cpY1 = prev.y;
+      const cpX2 = prev.x + (pt.x - prev.x) / 2;
+      const cpY2 = pt.y;
+      return `${acc} C ${cpX1},${cpY1} ${cpX2},${cpY2} ${pt.x},${pt.y}`;
+    }, '');
+
+    const firstX = points[0]?.x ?? 0;
+    const lastX = points[points.length - 1]?.x ?? 700;
+    const generatedArea = `${generatedPath} L ${lastX},170 L ${firstX},170 Z`;
+
+    return {
+      chartPoints: points,
+      pathD: generatedPath,
+      areaD: generatedArea,
+      maxBucketSales: maxSales
+    };
+  }, [completedTx, dateFilter, baseTimestamp, startTime, endTime]);
 
   const activePoint = chartPoints[Math.min(hoveredPointIndex, chartPoints.length - 1)] || chartPoints[0];
 
@@ -174,7 +338,6 @@ export const DashboardView: React.FC = () => {
     const mouseX = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(100, (mouseX / rect.width) * 100));
 
-    // Find closest point in chartPoints
     let closestIndex = 0;
     let minDistance = Infinity;
     chartPoints.forEach((pt, idx) => {
@@ -191,147 +354,214 @@ export const DashboardView: React.FC = () => {
 
   const handleChartMouseLeave = () => {
     setIsChartHovered(false);
-    setHoveredPointIndex(5); // Default back to 9 PM Peak point
   };
 
-  // Payment Breakdown Calculations with professional segment spacing
+  // Real Payment Breakdown Donut Chart dynamically calculated from completed transactions
   const paymentBreakdown = useMemo(() => {
-    const total = metricsData.sales;
-    const totalOrders = metricsData.orders;
-    const slices = [
-      { 
-        id: 'cash', 
-        name: 'Cash', 
-        percent: 58, 
-        color: '#3FA9A8', 
-        lightBg: 'bg-teal-50', 
-        textLight: 'text-teal-700', 
-        borderLight: 'border-teal-200', 
+    const total = metricsData.sales || 1;
+
+    let cashAmount = 0;
+    let cashOrders = 0;
+    let easypaisaAmount = 0;
+    let easypaisaOrders = 0;
+    let jazzcashAmount = 0;
+    let jazzcashOrders = 0;
+    let cardAmount = 0;
+    let cardOrders = 0;
+
+    for (const tx of completedTx) {
+      const m = (tx.paymentMethod || 'cash').toLowerCase();
+      if (m === 'cash') {
+        cashAmount += tx.total || 0;
+        cashOrders += 1;
+      } else if (m === 'easypaisa') {
+        easypaisaAmount += tx.total || 0;
+        easypaisaOrders += 1;
+      } else if (m === 'jazzcash') {
+        jazzcashAmount += tx.total || 0;
+        jazzcashOrders += 1;
+      } else {
+        cardAmount += tx.total || 0;
+        cardOrders += 1;
+      }
+    }
+
+    const rawSlices = [
+      {
+        id: 'cash',
+        name: 'Cash Counter',
+        amount: cashAmount,
+        orders: cashOrders,
+        percent: Math.round((cashAmount / total) * 100),
+        color: '#3FA9A8',
+        lightBg: 'bg-teal-50',
+        textLight: 'text-teal-700',
         dotClass: 'bg-[#3FA9A8]',
         badgeClass: 'bg-teal-50 text-[#3FA9A8] border-teal-200'
       },
-      { 
-        id: 'easypaisa', 
-        name: 'Easypaisa', 
-        percent: 24, 
-        color: '#10B981', 
-        lightBg: 'bg-emerald-50', 
-        textLight: 'text-emerald-700', 
-        borderLight: 'border-emerald-200', 
+      {
+        id: 'easypaisa',
+        name: 'Easypaisa QR',
+        amount: easypaisaAmount,
+        orders: easypaisaOrders,
+        percent: Math.round((easypaisaAmount / total) * 100),
+        color: '#10B981',
+        lightBg: 'bg-emerald-50',
+        textLight: 'text-emerald-700',
         dotClass: 'bg-[#10B981]',
         badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200'
       },
-      { 
-        id: 'jazzcash', 
-        name: 'JazzCash', 
-        percent: 14, 
-        color: '#F59E0B', 
-        lightBg: 'bg-amber-50', 
-        textLight: 'text-amber-700', 
-        borderLight: 'border-amber-200', 
+      {
+        id: 'jazzcash',
+        name: 'JazzCash QR',
+        amount: jazzcashAmount,
+        orders: jazzcashOrders,
+        percent: Math.round((jazzcashAmount / total) * 100),
+        color: '#F59E0B',
+        lightBg: 'bg-amber-50',
+        textLight: 'text-amber-700',
         dotClass: 'bg-[#F59E0B]',
         badgeClass: 'bg-amber-50 text-amber-700 border-amber-200'
       },
-      { 
-        id: 'card', 
-        name: 'Card / Bank', 
-        percent: 4, 
-        color: '#64748B', 
-        lightBg: 'bg-slate-100', 
-        textLight: 'text-slate-700', 
-        borderLight: 'border-slate-300', 
+      {
+        id: 'card',
+        name: 'Card / Digital POS',
+        amount: cardAmount,
+        orders: cardOrders,
+        percent: Math.round((cardAmount / total) * 100),
+        color: '#64748B',
+        lightBg: 'bg-slate-100',
+        textLight: 'text-slate-700',
         dotClass: 'bg-[#64748B]',
         badgeClass: 'bg-slate-100 text-slate-700 border-slate-300'
-      },
+      }
     ];
 
-    // Elegant separation gap
+    // Ensure slices add up cleanly and calculate SVG dash arrays
     const gap = 1.8;
     let currentOffset = 0;
-    return slices.map((s) => {
-      const amount = Math.round(total * (s.percent / 100));
-      const orders = Math.round(totalOrders * (s.percent / 100));
-      const dashLength = Math.max(1, s.percent - gap);
+
+    return rawSlices.map((s) => {
+      const slicePct = Math.max(0, s.percent);
+      const dashLength = Math.max(0.5, slicePct > gap ? slicePct - gap : slicePct);
       const dasharray = `${dashLength.toFixed(1)} 100`;
       const dashoffset = `-${(currentOffset + gap / 2).toFixed(1)}`;
-      currentOffset += s.percent;
+      currentOffset += slicePct;
 
       return {
         ...s,
-        amount,
-        orders,
         dasharray,
-        dashoffset,
+        dashoffset
       };
     });
-  }, [metricsData.sales, metricsData.orders]);
+  }, [completedTx, metricsData.sales]);
 
-  const currentHoveredPayment = paymentBreakdown.find(p => p.id === hoveredPayment);
+  const currentHoveredPayment = paymentBreakdown.find((p) => p.id === hoveredPayment);
 
-  // Top-Selling Dishes
+  // Real Top-Selling Dishes Matrix aggregated directly from completed transactions
   const topSellingDishes = useMemo(() => {
-    const multiplier = dateFilter === 'week' ? 6.5 : dateFilter === 'month' ? 28 : dateFilter === 'custom' ? 4.2 : 1;
-    return [
-      { id: 'biryani', name: 'Chicken Biryani (Special)', orders: Math.round(52 * multiplier), revenue: Math.round(26000 * multiplier) },
-      { id: 'karahi', name: 'Chicken Karahi (Half)', orders: Math.round(28 * multiplier), revenue: Math.round(22400 * multiplier) },
-      { id: 'seekh', name: 'Mutton Seekh Kebab', orders: Math.round(34 * multiplier), revenue: Math.round(18700 * multiplier) },
-      { id: 'naan', name: 'Garlic Roghani Naan', orders: Math.round(86 * multiplier), revenue: Math.round(6880 * multiplier) },
-      { id: 'chai', name: 'Karak Chai', orders: Math.round(65 * multiplier), revenue: Math.round(4550 * multiplier) },
-    ];
-  }, [dateFilter]);
+    interface DishTally {
+      id: string;
+      name: string;
+      orders: number;
+      revenue: number;
+    }
 
-  // Order Channels Breakdown
+    const map = new Map<string, DishTally>();
+
+    for (const tx of completedTx) {
+      if (!tx.items) continue;
+      for (const it of tx.items) {
+        const key = it.name.trim();
+        const existing = map.get(key);
+        const itemRev = it.price * it.qty;
+
+        if (existing) {
+          existing.orders += it.qty;
+          existing.revenue += itemRev;
+        } else {
+          map.set(key, {
+            id: it.productId || key,
+            name: it.name,
+            orders: it.qty,
+            revenue: itemRev
+          });
+        }
+      }
+    }
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => b.revenue - a.revenue);
+    return list.slice(0, 5);
+  }, [completedTx]);
+
+  // Real Order Channels Breakdown
   const channelData = useMemo(() => {
-    const totalOrders = metricsData.orders;
-    const totalSales = metricsData.sales;
-    const dineInOrders = Math.round(totalOrders * 0.68);
-    const takeawayOrders = totalOrders - dineInOrders;
-    const dineInSales = Math.round(totalSales * 0.68);
-    const takeawaySales = totalSales - dineInSales;
+    let dineInOrders = 0;
+    let dineInSales = 0;
+    let takeawayOrders = 0;
+    let takeawaySales = 0;
+
+    for (const tx of completedTx) {
+      const note = (tx.notes || '').toLowerCase();
+      if (note.includes('table') || note.includes('dine')) {
+        dineInOrders += 1;
+        dineInSales += tx.total || 0;
+      } else {
+        takeawayOrders += 1;
+        takeawaySales += tx.total || 0;
+      }
+    }
+
+    const totalSales = metricsData.sales || 1;
 
     return {
       dineInOrders,
       dineInSales,
-      dineInPct: 68,
+      dineInPct: Math.round((dineInSales / totalSales) * 100),
       takeawayOrders,
       takeawaySales,
-      takeawayPct: 32,
+      takeawayPct: Math.round((takeawaySales / totalSales) * 100),
     };
-  }, [metricsData.orders, metricsData.sales]);
+  }, [completedTx, metricsData.sales]);
 
   // Unified Transactions List for Table
   const displayTransactions = useMemo(() => {
-    let list = liveTransactions.length >= 5 ? [...liveTransactions] : [...liveTransactions, ...INITIAL_TRANSACTIONS];
+    let list = [...filteredTransactions];
 
     if (txSearch.trim()) {
-      const q = txSearch.toLowerCase();
-      list = list.filter(tx => 
+      const q = txSearch.toLowerCase().trim();
+      list = list.filter((tx) =>
+        String(tx.orderNumber).includes(q) ||
         tx.id.toLowerCase().includes(q) ||
         (tx.notes && tx.notes.toLowerCase().includes(q)) ||
         tx.paymentMethod.toLowerCase().includes(q) ||
-        tx.cashierName.toLowerCase().includes(q) ||
-        tx.items.some(it => it.name.toLowerCase().includes(q))
+        (tx.cashierName && tx.cashierName.toLowerCase().includes(q)) ||
+        tx.items?.some((it) => it.name.toLowerCase().includes(q))
       );
     }
 
     if (selectedPaymentFilter) {
-      list = list.filter(tx => tx.paymentMethod.toLowerCase() === selectedPaymentFilter.toLowerCase());
+      list = list.filter((tx) => tx.paymentMethod.toLowerCase() === selectedPaymentFilter.toLowerCase());
     }
 
     if (selectedChannelFilter) {
-      list = list.filter(tx => {
-        if (selectedChannelFilter === 'dine_in') return tx.notes?.includes('Table') || tx.notes?.includes('Dine');
-        if (selectedChannelFilter === 'takeaway') return tx.notes?.includes('Takeaway') || tx.notes?.includes('Counter');
+      list = list.filter((tx) => {
+        const note = (tx.notes || '').toLowerCase();
+        if (selectedChannelFilter === 'dine_in') return note.includes('table') || note.includes('dine');
+        if (selectedChannelFilter === 'takeaway') return !note.includes('table') && !note.includes('dine');
         return true;
       });
     }
 
     if (selectedDishFilter) {
-      list = list.filter(tx => tx.items.some(it => it.name.toLowerCase().includes(selectedDishFilter.toLowerCase())));
+      list = list.filter((tx) => tx.items?.some((it) => it.name.toLowerCase().includes(selectedDishFilter.toLowerCase())));
     }
 
+    // Sort newest first
+    list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     return list;
-  }, [liveTransactions, txSearch, selectedPaymentFilter, selectedChannelFilter, selectedDishFilter]);
+  }, [filteredTransactions, txSearch, selectedPaymentFilter, selectedChannelFilter, selectedDishFilter]);
 
   const totalPages = Math.max(1, Math.ceil(displayTransactions.length / pageSize));
   const currentPage = Math.min(txPage, totalPages);
@@ -346,7 +576,7 @@ export const DashboardView: React.FC = () => {
       hours = hours % 12 || 12;
       return `${hours.toString().padStart(2, '0')}:${mins} ${ampm}`;
     } catch {
-      return '09:42 PM';
+      return '12:00 PM';
     }
   };
 
@@ -366,16 +596,22 @@ export const DashboardView: React.FC = () => {
       {/* BEGIN: Subheader & Quick Actions */}
       <section className="flex flex-col md:flex-row md:items-center justify-between gap-4" data-purpose="dashboard-controls">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Dashboard</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Your restaurant performance at a glance</p>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Dashboard &amp; Operations</h2>
+            <span className="px-2.5 py-0.5 text-xs font-semibold bg-teal-50 text-[#3FA9A8] border border-teal-200/60 rounded-full">
+              Live Dexie Stream
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">Real-time revenue trajectory, order flow, and register metrics</p>
         </div>
+
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Segmented Date Filter */}
-          <div className="inline-flex p-1 bg-slate-200/70 rounded-lg text-xs font-medium text-slate-600 relative">
+          <div className="inline-flex p-1 bg-slate-200/70 rounded-xl text-xs font-medium text-slate-600 relative">
             <button 
               type="button" 
-              onClick={() => { setDateFilter('today'); setCustomDropdownOpen(false); }}
-              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+              onClick={() => { setDateFilter('today'); setCustomDropdownOpen(false); setTxPage(1); }}
+              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
                 dateFilter === 'today' ? 'bg-[#3FA9A8] text-white shadow-xs font-semibold' : 'hover:text-slate-900'
               }`}
             >
@@ -383,8 +619,8 @@ export const DashboardView: React.FC = () => {
             </button>
             <button 
               type="button" 
-              onClick={() => { setDateFilter('week'); setCustomDropdownOpen(false); }}
-              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+              onClick={() => { setDateFilter('week'); setCustomDropdownOpen(false); setTxPage(1); }}
+              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
                 dateFilter === 'week' ? 'bg-[#3FA9A8] text-white shadow-xs font-semibold' : 'hover:text-slate-900'
               }`}
             >
@@ -392,8 +628,8 @@ export const DashboardView: React.FC = () => {
             </button>
             <button 
               type="button" 
-              onClick={() => { setDateFilter('month'); setCustomDropdownOpen(false); }}
-              className={`px-3 py-1 rounded-md transition-all hidden sm:block cursor-pointer ${
+              onClick={() => { setDateFilter('month'); setCustomDropdownOpen(false); setTxPage(1); }}
+              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
                 dateFilter === 'month' ? 'bg-[#3FA9A8] text-white shadow-xs font-semibold' : 'hover:text-slate-900'
               }`}
             >
@@ -402,14 +638,12 @@ export const DashboardView: React.FC = () => {
             <button 
               type="button" 
               onClick={() => setCustomDropdownOpen(!customDropdownOpen)}
-              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                 dateFilter === 'custom' ? 'bg-[#3FA9A8] text-white shadow-xs font-semibold' : 'hover:text-slate-900'
               }`}
             >
               <span>{dateFilter === 'custom' ? customRangeLabel : 'Custom'}</span>
-              <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-              </svg>
+              <Calendar className="w-3 h-3 ml-0.5" />
             </button>
 
             {/* Custom Range Popover Dropdown */}
@@ -417,18 +651,21 @@ export const DashboardView: React.FC = () => {
               <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-40 text-xs">
                 <div className="px-3 py-1 text-[10px] uppercase font-bold text-slate-400">Timeframe Presets</div>
                 {[
-                  { label: 'Yesterday', filter: 'custom' as const },
-                  { label: 'Last 7 Days', filter: 'custom' as const },
-                  { label: 'Last 30 Days', filter: 'custom' as const },
-                  { label: 'This Quarter', filter: 'custom' as const },
+                  { label: 'Yesterday', days: 1 },
+                  { label: 'Last 7 Days', days: 7 },
+                  { label: 'Last 14 Days', days: 14 },
+                  { label: 'Last 30 Days', days: 30 },
+                  { label: 'Last 90 Days', days: 90 },
                 ].map((item) => (
                   <button
                     key={item.label}
                     type="button"
                     onClick={() => {
                       setDateFilter('custom');
+                      setCustomRangeDays(item.days);
                       setCustomRangeLabel(item.label);
                       setCustomDropdownOpen(false);
+                      setTxPage(1);
                     }}
                     className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between text-slate-700 cursor-pointer"
                   >
@@ -449,49 +686,57 @@ export const DashboardView: React.FC = () => {
                 setCashMovementType('pay_out');
                 setCashMovementModalOpen(true);
               }}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-2xs transition cursor-pointer" 
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs transition cursor-pointer" 
               type="button"
             >
-              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-              </svg>
+              <DollarSign className="w-3.5 h-3.5 text-slate-500" />
               <span>Record Expense</span>
             </button>
             <button 
               onClick={() => setActiveTab('cash_closing')}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-2xs transition hidden xl:inline-flex cursor-pointer" 
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs transition cursor-pointer" 
               type="button"
             >
-              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-              </svg>
+              <Receipt className="w-3.5 h-3.5 text-slate-500" />
               <span>Cash Closing</span>
             </button>
             <button 
               onClick={() => setActiveTab('pos')}
-              className="inline-flex items-center space-x-1 px-3.5 py-1.5 bg-[#3FA9A8] hover:bg-[#359392] text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer" 
+              className="inline-flex items-center space-x-1 px-3.5 py-1.5 bg-[#3FA9A8] hover:bg-[#349695] text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer" 
               type="button"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
-              </svg>
-              <span>New Sale</span>
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span>New POS Sale</span>
             </button>
           </div>
         </div>
       </section>
       {/* END: Subheader & Quick Actions */}
 
+      {/* Scope Pill */}
+      <div className="flex items-center justify-between bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl text-xs text-slate-600">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-[#3FA9A8]" />
+          <span className="font-semibold text-slate-800">Operational Window:</span>
+          <span className="bg-white px-2.5 py-0.5 rounded-md font-mono text-slate-700 border border-slate-200 shadow-2xs">
+            {periodLabel}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span>Active Feed: <strong className="text-slate-800">{completedTx.length} tickets</strong></span>
+          <span>•</span>
+          <span>Gross Volume: <strong className="text-emerald-700">{formatPKR(metricsData.sales)}</strong></span>
+        </div>
+      </div>
+
       {/* BEGIN: Metric Cards Row (4 Cards) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-purpose="metric-cards-grid">
-        {/* Card 1: Today's Sales */}
-        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)] relative flex flex-col justify-between">
+        {/* Card 1: Gross Sales */}
+        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs relative flex flex-col justify-between hover:border-[#3FA9A8] transition-colors">
           <div>
             <div className="flex items-start justify-between">
-              <div className="w-10 h-10 rounded-full bg-[#3FA9A8]/10 text-[#3FA9A8] flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-                </svg>
+              <div className="w-10 h-10 rounded-xl bg-teal-50 text-[#3FA9A8] flex items-center justify-center">
+                <DollarSign className="w-5 h-5" />
               </div>
               <div className="relative">
                 <button 
@@ -510,42 +755,38 @@ export const DashboardView: React.FC = () => {
                       onClick={() => { setActiveTab('reports'); setActiveKpiMenu(null); }}
                       className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-slate-700 cursor-pointer"
                     >
-                      View Sales Report
-                    </button>
-                    <button 
-                      onClick={() => { window.print(); setActiveKpiMenu(null); }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-slate-700 cursor-pointer"
-                    >
-                      Print Summary
+                      View Reports Desk
                     </button>
                   </div>
                 )}
               </div>
             </div>
             <div className="mt-3">
-              <span className="text-xs font-medium text-slate-500">Today&apos;s Sales</span>
-              <p className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">
-                Rs. {metricsData.sales.toLocaleString()}
+              <span className="text-xs font-medium text-slate-500">Gross Sales</span>
+              <p className="text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
+                {formatPKR(metricsData.sales)}
               </p>
             </div>
           </div>
           <div className="mt-3 flex items-center text-xs font-semibold text-emerald-600">
-            <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M5 10l7-7m0 0l7 7m-7-7v18" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
-            </svg>
-            <span>{metricsData.salesTrend}%</span>
-            <span className="text-slate-400 font-normal ml-1">from {metricsData.periodName}</span>
+            {metricsData.salesTrend >= 0 ? (
+              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
+            ) : (
+              <ArrowDownRight className="w-3.5 h-3.5 mr-0.5 text-rose-500" />
+            )}
+            <span className={metricsData.salesTrend >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+              {metricsData.salesTrend}%
+            </span>
+            <span className="text-slate-400 font-normal ml-1">vs {metricsData.periodName}</span>
           </div>
         </article>
 
         {/* Card 2: Completed Orders */}
-        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)] relative flex flex-col justify-between">
+        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs relative flex flex-col justify-between hover:border-[#3FA9A8] transition-colors">
           <div>
             <div className="flex items-start justify-between">
-              <div className="w-10 h-10 rounded-full bg-[#3FA9A8]/10 text-[#3FA9A8] flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-                </svg>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Receipt className="w-5 h-5" />
               </div>
               <div className="relative">
                 <button 
@@ -572,28 +813,30 @@ export const DashboardView: React.FC = () => {
             </div>
             <div className="mt-3">
               <span className="text-xs font-medium text-slate-500">Completed Orders</span>
-              <p className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">
+              <p className="text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
                 {metricsData.orders.toLocaleString()}
               </p>
             </div>
           </div>
-          <div className="mt-3 flex items-center text-xs font-semibold text-emerald-600">
-            <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M5 10l7-7m0 0l7 7m-7-7v18" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
-            </svg>
-            <span>{metricsData.ordersTrend}%</span>
-            <span className="text-slate-400 font-normal ml-1">from {metricsData.periodName}</span>
+          <div className="mt-3 flex items-center text-xs font-semibold text-blue-600">
+            {metricsData.ordersTrend >= 0 ? (
+              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
+            ) : (
+              <ArrowDownRight className="w-3.5 h-3.5 mr-0.5 text-rose-500" />
+            )}
+            <span className={metricsData.ordersTrend >= 0 ? 'text-blue-600' : 'text-rose-500'}>
+              {metricsData.ordersTrend}%
+            </span>
+            <span className="text-slate-400 font-normal ml-1">vs {metricsData.periodName}</span>
           </div>
         </article>
 
         {/* Card 3: Average Bill Value */}
-        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)] relative flex flex-col justify-between">
+        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs relative flex flex-col justify-between hover:border-[#3FA9A8] transition-colors">
           <div>
             <div className="flex items-start justify-between">
-              <div className="w-10 h-10 rounded-full bg-[#3FA9A8]/10 text-[#3FA9A8] flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-                </svg>
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <ShoppingBag className="w-5 h-5" />
               </div>
               <div className="relative">
                 <button 
@@ -612,36 +855,38 @@ export const DashboardView: React.FC = () => {
                       onClick={() => { setActiveTab('reports'); setActiveKpiMenu(null); }}
                       className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-slate-700 cursor-pointer"
                     >
-                      Average Ticket Matrix
+                      View Velocity Matrix
                     </button>
                   </div>
                 )}
               </div>
             </div>
             <div className="mt-3">
-              <span className="text-xs font-medium text-slate-500">Average Bill Value</span>
-              <p className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">
-                Rs. {metricsData.avgBill.toFixed(2)}
+              <span className="text-xs font-medium text-slate-500">Average Bill (AOV)</span>
+              <p className="text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
+                {formatPKR(metricsData.avgBill)}
               </p>
             </div>
           </div>
-          <div className="mt-3 flex items-center text-xs font-semibold text-emerald-600">
-            <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M5 10l7-7m0 0l7 7m-7-7v18" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
-            </svg>
-            <span>{metricsData.billTrend}%</span>
-            <span className="text-slate-400 font-normal ml-1">from {metricsData.periodName}</span>
+          <div className="mt-3 flex items-center text-xs font-semibold text-amber-600">
+            {metricsData.billTrend >= 0 ? (
+              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
+            ) : (
+              <ArrowDownRight className="w-3.5 h-3.5 mr-0.5 text-rose-500" />
+            )}
+            <span className={metricsData.billTrend >= 0 ? 'text-amber-600' : 'text-rose-500'}>
+              {metricsData.billTrend}%
+            </span>
+            <span className="text-slate-400 font-normal ml-1">vs {metricsData.periodName}</span>
           </div>
         </article>
 
         {/* Card 4: Recorded Expenses */}
-        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)] relative flex flex-col justify-between">
+        <article className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs relative flex flex-col justify-between hover:border-[#3FA9A8] transition-colors">
           <div>
             <div className="flex items-start justify-between">
-              <div className="w-10 h-10 rounded-full bg-[#3FA9A8]/10 text-[#3FA9A8] flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-                </svg>
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <PieChart className="w-5 h-5" />
               </div>
               <div className="relative">
                 <button 
@@ -660,7 +905,7 @@ export const DashboardView: React.FC = () => {
                       onClick={() => { setActiveTab('expenses'); setActiveKpiMenu(null); }}
                       className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-slate-700 cursor-pointer"
                     >
-                      Expense Ledger
+                      Expense Audit Ledger
                     </button>
                   </div>
                 )}
@@ -668,13 +913,13 @@ export const DashboardView: React.FC = () => {
             </div>
             <div className="mt-3">
               <span className="text-xs font-medium text-slate-500">Recorded Expenses</span>
-              <p className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">
-                Rs. {metricsData.expenses.toLocaleString()}
+              <p className="text-2xl font-bold text-rose-600 tracking-tight mt-0.5">
+                {formatPKR(metricsData.expenses)}
               </p>
             </div>
           </div>
           <div className="mt-3 flex items-center text-xs font-medium text-slate-500">
-            <span className="inline-block w-2 h-2 rounded-full bg-slate-300 mr-1.5" />
+            <span className="inline-block w-2 h-2 rounded-full bg-rose-400 mr-1.5" />
             <span>{metricsData.vouchers} vouchers logged {dateFilter === 'today' ? 'today' : 'in period'}</span>
           </div>
         </article>
@@ -687,19 +932,19 @@ export const DashboardView: React.FC = () => {
         <article className="lg:col-span-7 bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between pb-4 border-b border-slate-100">
             <div>
-              <h3 className="text-base font-bold text-slate-800">Sales Overview</h3>
+              <h3 className="text-base font-bold text-slate-800">Sales Trajectory</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                {dateFilter === 'today' ? 'Hourly sales trajectory vs target (Hover anywhere to inspect)' : 'Period sales performance vs target'}
+                Live chronological revenue curve across {periodLabel} (Hover anywhere to inspect)
               </p>
             </div>
             <div className="flex items-center space-x-3 text-xs">
-              <div className="flex items-center space-x-1.5 text-slate-600">
+              <div className="flex items-center space-x-1.5 text-slate-700 font-semibold">
                 <span className="w-3 h-3 rounded-sm bg-[#3FA9A8]" />
-                <span>Today&apos;s Trend</span>
+                <span>Actual Flow</span>
               </div>
               <div className="flex items-center space-x-1.5 text-slate-400">
                 <span className="w-3 h-0.5 bg-slate-300" />
-                <span>Target Baseline</span>
+                <span>Baseline Target</span>
               </div>
             </div>
           </div>
@@ -734,13 +979,13 @@ export const DashboardView: React.FC = () => {
                 <div className="pt-1.5 flex items-baseline justify-center gap-1.5">
                   <span className="text-xs text-slate-400 font-medium">Sales:</span>
                   <span className="text-sm font-extrabold text-white tracking-tight">
-                    Rs. {activePoint.sales.toLocaleString()}
+                    {formatPKR(activePoint.sales)}
                   </span>
                 </div>
                 <div className="text-[10px] text-slate-300 flex items-center justify-center gap-2 mt-0.5">
-                  <span>{activePoint.orders} orders completed</span>
+                  <span>{activePoint.orders} tickets</span>
                   <span>•</span>
-                  <span>Avg: Rs. {Math.round(activePoint.sales / activePoint.orders).toLocaleString()}</span>
+                  <span>Avg: {formatPKR(activePoint.orders > 0 ? activePoint.sales / activePoint.orders : 0)}</span>
                 </div>
               </div>
               <div className="w-2.5 h-2.5 bg-slate-900 rotate-45 mx-auto -mt-1 border-r border-b border-slate-700/80" />
@@ -763,11 +1008,11 @@ export const DashboardView: React.FC = () => {
               {/* Target Baseline Line */}
               <path d="M 0,130 C 150,120 300,105 450,90 C 550,80 620,70 700,65" fill="none" stroke="#cbd5e1" strokeDasharray="5 5" strokeWidth="1.5" />
 
-              {/* Fill Area Gradient */}
-              <path d="M 0,170 Q 60,165 116,140 T 233,125 T 350,110 T 466,75 T 583,28 T 700,70 L 700,170 L 0,170 Z" fill="url(#tealGrad)" />
+              {/* Fill Area Gradient (Dynamically generated from actual points) */}
+              <path d={areaD} fill="url(#tealGrad)" />
 
-              {/* Solid Trajectory Line */}
-              <path d="M 0,170 Q 60,165 116,140 T 233,125 T 350,110 T 466,75 T 583,28 T 700,70" fill="none" stroke="#3FA9A8" strokeLinecap="round" strokeWidth="3" />
+              {/* Solid Trajectory Line (Dynamically generated from actual points) */}
+              <path d={pathD} fill="none" stroke="#3FA9A8" strokeLinecap="round" strokeWidth="3" />
 
               {/* Active Pulse Outer Halo */}
               <circle 
@@ -790,7 +1035,7 @@ export const DashboardView: React.FC = () => {
                 className="pointer-events-none shadow-md transition-all duration-100"
               />
 
-              {/* Inactive Point Sub-Nodes for visual continuity */}
+              {/* Inactive Point Sub-Nodes */}
               {chartPoints.map((pt, idx) => (
                 <circle
                   key={pt.label}
@@ -826,8 +1071,8 @@ export const DashboardView: React.FC = () => {
         <article className="lg:col-span-5 bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between pb-4 border-b border-slate-100">
             <div>
-              <h3 className="text-base font-bold text-slate-800">Payment Methods</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Reconciled collection breakdown (Hover slices to inspect)</p>
+              <h3 className="text-base font-bold text-slate-800">Payment Breakdown</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Tender share across {periodLabel}</p>
             </div>
             <div className="flex items-center gap-1.5">
               {selectedPaymentFilter && (
@@ -840,7 +1085,7 @@ export const DashboardView: React.FC = () => {
                   Reset Filter
                 </button>
               )}
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 Verified
               </span>
             </div>
@@ -915,7 +1160,7 @@ export const DashboardView: React.FC = () => {
                 })}
               </svg>
 
-              {/* Dynamic Center Content Card responding to hover at any slice */}
+              {/* Dynamic Center Content Card */}
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-2 select-none">
                 {currentHoveredPayment ? (
                   <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-150">
@@ -924,22 +1169,22 @@ export const DashboardView: React.FC = () => {
                       {currentHoveredPayment.name}
                     </span>
                     <span className="text-base font-extrabold text-slate-900 tracking-tight mt-0.5">
-                      Rs. {currentHoveredPayment.amount.toLocaleString()}
+                      {formatPKR(currentHoveredPayment.amount)}
                     </span>
                     <span className="text-[10px] text-slate-500 font-medium">
-                      {currentHoveredPayment.percent}% ({currentHoveredPayment.orders} orders)
+                      {currentHoveredPayment.percent}% ({currentHoveredPayment.orders} tickets)
                     </span>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center">
                     <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
-                      Reconciled
+                      Gross Collected
                     </span>
                     <span className="text-base font-extrabold text-slate-800 tracking-tight">
-                      Rs. {(metricsData.sales / 1000).toFixed(1)}k
+                      {formatPKR(metricsData.sales)}
                     </span>
                     <span className="text-[9px] text-emerald-600 font-medium flex items-center gap-1 mt-0.5">
-                      <CheckCircle className="w-2.5 h-2.5" /> 100% Closed
+                      <CheckCircle className="w-2.5 h-2.5" /> 100% Reconciled
                     </span>
                   </div>
                 )}
@@ -977,7 +1222,7 @@ export const DashboardView: React.FC = () => {
                       </span>
                     </div>
                     <div className="text-right flex items-center gap-1.5">
-                      <span className="font-bold text-slate-800">Rs. {pm.amount.toLocaleString()}</span>
+                      <span className="font-bold text-slate-800">{formatPKR(pm.amount)}</span>
                       <span className="text-[10px] text-slate-400 font-medium">({pm.percent}%)</span>
                     </div>
                   </div>
@@ -987,16 +1232,14 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Manual register drawer reconciled</span>
-            <span 
-              onClick={() => {
-                setSelectedTransaction(displayTransactions[0] || null);
-                setReceiptPreviewModalOpen(true);
-              }}
-              className="text-[#3FA9A8] font-medium hover:underline cursor-pointer"
+            <span>Click any payment tender to filter order ledger</span>
+            <button
+              type="button" 
+              onClick={() => setActiveTab('reports')}
+              className="text-[#3FA9A8] font-semibold hover:underline cursor-pointer"
             >
-              Print Slip
-            </span>
+              Full Reconciliation →
+            </button>
           </div>
         </article>
       </section>
@@ -1009,7 +1252,7 @@ export const DashboardView: React.FC = () => {
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
             <div>
               <h3 className="text-base font-bold text-slate-800">Top-Selling Dishes</h3>
-              <p className="text-xs text-slate-500 mt-0.5">High velocity revenue contributors</p>
+              <p className="text-xs text-slate-500 mt-0.5">High velocity revenue contributors in {periodLabel}</p>
             </div>
             <div className="flex items-center gap-2">
               {selectedDishFilter && (
@@ -1029,14 +1272,14 @@ export const DashboardView: React.FC = () => {
               </button>
             </div>
           </div>
-          <div className="space-y-3.5">
+          <div className="space-y-3">
             {topSellingDishes.map((dish, idx) => {
               const isSelected = selectedDishFilter === dish.name;
               return (
                 <div 
-                  key={dish.id}
+                  key={dish.name}
                   onClick={() => setSelectedDishFilter(isSelected ? null : dish.name)}
-                  className={`flex items-center justify-between text-xs p-1 rounded-lg cursor-pointer transition ${
+                  className={`flex items-center justify-between text-xs p-2 rounded-xl cursor-pointer transition ${
                     isSelected ? 'bg-teal-50 ring-1 ring-[#3FA9A8]' : 'hover:bg-slate-50'
                   }`}
                 >
@@ -1051,12 +1294,18 @@ export const DashboardView: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex items-center space-x-6 text-right">
-                    <span className="text-slate-500 font-medium">{dish.orders} orders</span>
-                    <span className="font-bold text-slate-900 w-20">Rs. {dish.revenue.toLocaleString()}</span>
+                    <span className="text-slate-500 font-medium">{dish.orders} sold</span>
+                    <span className="font-bold text-slate-900 w-24">{formatPKR(dish.revenue)}</span>
                   </div>
                 </div>
               );
             })}
+            {topSellingDishes.length === 0 && (
+              <div className="py-8 text-center text-slate-400">
+                <ShoppingBag className="w-6 h-6 mx-auto mb-1 opacity-40" />
+                <p>No item sales recorded for the selected window.</p>
+              </div>
+            )}
           </div>
         </article>
 
@@ -1065,7 +1314,7 @@ export const DashboardView: React.FC = () => {
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div>
-                <h3 className="text-base font-bold text-slate-800">Order Channels</h3>
+                <h3 className="text-base font-bold text-slate-800">Dining Channels</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Dine-in vs takeaway volume</p>
               </div>
               <div className="flex items-center gap-2">
@@ -1086,56 +1335,54 @@ export const DashboardView: React.FC = () => {
               {/* Dine In */}
               <div 
                 onClick={() => setSelectedChannelFilter(selectedChannelFilter === 'dine_in' ? null : 'dine_in')}
-                className={`p-1.5 rounded-xl cursor-pointer transition ${
+                className={`p-2 rounded-xl cursor-pointer transition ${
                   selectedChannelFilter === 'dine_in' ? 'bg-teal-50 ring-1 ring-[#3FA9A8]' : 'hover:bg-slate-50'
                 }`}
               >
                 <div className="flex justify-between text-xs mb-1.5 font-medium">
                   <span className="text-slate-700 flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-[#3FA9A8]" />
-                    Dine-In ({channelData.dineInOrders} orders)
+                    Dine-In ({channelData.dineInOrders} tickets)
                   </span>
                   <span className="font-bold text-slate-800">
-                    Rs. {channelData.dineInSales.toLocaleString()}{' '}
+                    {formatPKR(channelData.dineInSales)}{' '}
                     <span className="text-slate-400 font-normal">({channelData.dineInPct}%)</span>
                   </span>
                 </div>
                 <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden">
-                  <div className="h-full rounded-full bg-[#3FA9A8] transition-all duration-500" style={{ width: `${channelData.dineInPct}%` }} />
+                  <div className="h-full rounded-full bg-[#3FA9A8] transition-all duration-500" style={{ width: `${Math.max(4, channelData.dineInPct)}%` }} />
                 </div>
               </div>
               {/* Takeaway */}
               <div 
                 onClick={() => setSelectedChannelFilter(selectedChannelFilter === 'takeaway' ? null : 'takeaway')}
-                className={`p-1.5 rounded-xl cursor-pointer transition ${
+                className={`p-2 rounded-xl cursor-pointer transition ${
                   selectedChannelFilter === 'takeaway' ? 'bg-amber-50 ring-1 ring-amber-400' : 'hover:bg-slate-50'
                 }`}
               >
                 <div className="flex justify-between text-xs mb-1.5 font-medium">
                   <span className="text-slate-700 flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    Takeaway / Counter ({channelData.takeawayOrders} orders)
+                    Takeaway / Counter ({channelData.takeawayOrders} tickets)
                   </span>
                   <span className="font-bold text-slate-800">
-                    Rs. {channelData.takeawaySales.toLocaleString()}{' '}
+                    {formatPKR(channelData.takeawaySales)}{' '}
                     <span className="text-slate-400 font-normal">({channelData.takeawayPct}%)</span>
                   </span>
                 </div>
                 <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden">
-                  <div className="h-full rounded-full bg-amber-400 transition-all duration-500" style={{ width: `${channelData.takeawayPct}%` }} />
+                  <div className="h-full rounded-full bg-amber-400 transition-all duration-500" style={{ width: `${Math.max(4, channelData.takeawayPct)}%` }} />
                 </div>
               </div>
             </div>
           </div>
-          {/* Quick Seating Footnote */}
+          {/* Channel Insight Card */}
           <div className="mt-6 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 bg-slate-50 p-3 rounded-xl">
             <div className="flex items-center space-x-2">
-              <svg className="w-4 h-4 text-[#3FA9A8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-              </svg>
-              <span>Current Table Turn Rate: <strong className="text-slate-700">38 min avg</strong></span>
+              <CheckCircle className="w-4 h-4 text-[#3FA9A8]" />
+              <span>Real-time channel reconciliation from Dexie register logs</span>
             </div>
-            <span className="text-emerald-600 font-medium">Optimal flow</span>
+            <span className="text-emerald-600 font-bold">100% Synced</span>
           </div>
         </article>
       </section>
@@ -1145,8 +1392,8 @@ export const DashboardView: React.FC = () => {
       <section className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden" data-purpose="recent-transactions-card">
         <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h3 className="text-base font-bold text-slate-800">Recent Transactions</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Live register feed from Station 1 &amp; Station 2</p>
+            <h3 className="text-base font-bold text-slate-800">Live Register Feed</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Transactions logged in {periodLabel}</p>
           </div>
           <div className="flex items-center gap-3">
             {/* Quick Search */}
@@ -1154,10 +1401,10 @@ export const DashboardView: React.FC = () => {
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search tx, cashier..."
+                placeholder="Search ticket #, cashier..."
                 value={txSearch}
                 onChange={(e) => { setTxSearch(e.target.value); setTxPage(1); }}
-                className="pl-8 pr-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#3FA9A8] w-40"
+                className="pl-8 pr-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#3FA9A8] w-48"
               />
               {txSearch && (
                 <button 
@@ -1172,12 +1419,9 @@ export const DashboardView: React.FC = () => {
 
             <button 
               onClick={() => setActiveTab('transactions')}
-              className="text-xs font-semibold text-[#3FA9A8] hover:text-[#359392] inline-flex items-center space-x-1 cursor-pointer"
+              className="text-xs font-semibold text-[#3FA9A8] hover:text-[#349695] inline-flex items-center space-x-1 cursor-pointer"
             >
-              <span>View All Transactions</span>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-              </svg>
+              <span>View Full Ledger →</span>
             </button>
           </div>
         </div>
@@ -1213,9 +1457,9 @@ export const DashboardView: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200/80">
-                <th className="py-3 px-5">Receipt #</th>
+                <th className="py-3 px-5">Receipt / Order #</th>
                 <th className="py-3 px-4">Time</th>
-                <th className="py-3 px-4">Order Type</th>
+                <th className="py-3 px-4">Service Type</th>
                 <th className="py-3 px-4">Payment Method</th>
                 <th className="py-3 px-4">Items Count</th>
                 <th className="py-3 px-4">Total Amount</th>
@@ -1245,8 +1489,8 @@ export const DashboardView: React.FC = () => {
                       onClick={() => handleOpenTransaction(tx)}
                       className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                     >
-                      <td className="py-3.5 px-5 font-semibold text-slate-900 group-hover:text-[#3FA9A8] transition-colors flex items-center gap-1.5">
-                        <span>{tx.id}</span>
+                      <td className="py-3.5 px-5 font-semibold text-slate-900 group-hover:text-[#3FA9A8] transition-colors flex items-center gap-1.5 font-mono">
+                        <span>#{tx.orderNumber || tx.id}</span>
                         <Eye className="w-3 h-3 text-slate-300 group-hover:text-[#3FA9A8] opacity-0 group-hover:opacity-100 transition-opacity" />
                       </td>
                       <td className="py-3.5 px-4 text-slate-500">
@@ -1269,7 +1513,7 @@ export const DashboardView: React.FC = () => {
                         {itemsCount} {itemsCount === 1 ? 'item' : 'items'}
                       </td>
                       <td className="py-3.5 px-4 font-bold text-slate-900">
-                        Rs. {tx.total.toLocaleString()}
+                        {formatPKR(tx.total)}
                       </td>
                       <td className="py-3.5 px-5 text-right">
                         <div className="inline-flex items-center gap-2">
@@ -1277,12 +1521,16 @@ export const DashboardView: React.FC = () => {
                             type="button"
                             title="Print Thermal Slip"
                             onClick={(e) => handlePrintSlip(e, tx)}
-                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 transition cursor-pointer"
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 transition cursor-pointer"
                           >
                             <Printer className="w-3.5 h-3.5" />
                           </button>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Paid
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                            tx.status === 'completed'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
+                            {tx.status === 'completed' ? 'Paid' : tx.status}
                           </span>
                         </div>
                       </td>
