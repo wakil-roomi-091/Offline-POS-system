@@ -5,7 +5,8 @@ import type {
   ShiftRecord, 
   CashMovement, 
   ExpenseRecord, 
-  OrderBookingSheet 
+  OrderBookingSheet,
+  OrderBooker
 } from '../types';
 
 export interface BackupMetadata {
@@ -22,6 +23,7 @@ export interface BackupMetadata {
     shifts: number;
     cashMovements: number;
     bookingSheets: number;
+    bookers: number;
     settings: number;
   };
 }
@@ -34,6 +36,7 @@ export interface BackupPayload {
   shifts: ShiftRecord[];
   cashMovements: CashMovement[];
   bookingSheets: OrderBookingSheet[];
+  bookers?: OrderBooker[];
   settings: { key: string; value: any }[];
 }
 
@@ -63,6 +66,7 @@ export const backupService = {
     const shifts = await db.shifts.toArray();
     const cashMovements = await db.cashMovements.toArray();
     const bookingSheets = await db.bookingSheets.toArray();
+    const bookers = await db.bookers.toArray();
     const settings = await db.settings.toArray();
 
     const metadata: BackupMetadata = {
@@ -79,6 +83,7 @@ export const backupService = {
         shifts: shifts.length,
         cashMovements: cashMovements.length,
         bookingSheets: bookingSheets.length,
+        bookers: bookers.length,
         settings: settings.length
       }
     };
@@ -91,6 +96,7 @@ export const backupService = {
       shifts,
       cashMovements,
       bookingSheets,
+      bookers,
       settings
     };
   },
@@ -121,6 +127,7 @@ export const backupService = {
       shifts: data.shifts?.length || 0,
       cashMovements: data.cashMovements?.length || 0,
       bookingSheets: data.bookingSheets?.length || 0,
+      bookers: data.bookers?.length || 0,
       settings: data.settings?.length || 0
     };
 
@@ -151,6 +158,7 @@ export const backupService = {
           db.shifts,
           db.cashMovements,
           db.bookingSheets,
+          db.bookers,
           db.settings
         ],
         async () => {
@@ -193,6 +201,13 @@ export const backupService = {
             await db.bookingSheets.clear();
             if (payload.bookingSheets.length > 0) {
               await db.bookingSheets.bulkAdd(payload.bookingSheets);
+            }
+          }
+
+          if (Array.isArray(payload.bookers)) {
+            await db.bookers.clear();
+            if (payload.bookers.length > 0) {
+              await db.bookers.bulkAdd(payload.bookers);
             }
           }
 

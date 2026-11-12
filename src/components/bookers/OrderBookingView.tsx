@@ -20,14 +20,15 @@ import {
   Layers
 } from 'lucide-react';
 import { db, INITIAL_PRODUCTS } from '../../db';
-import { INITIAL_BOOKERS } from '../../db/seedData';
-import type { OrderBookingSheet, BookingSheetItem } from '../../types';
+import type { OrderBookingSheet, BookingSheetItem, OrderBooker } from '../../types';
 
 const EMPTY_BOOKING_SHEETS: OrderBookingSheet[] = [];
+const EMPTY_BOOKERS: OrderBooker[] = [];
 
 export const OrderBookingView: React.FC = () => {
   // Live records from Dexie DB
   const liveSheets = useLiveQuery(() => db.bookingSheets.toArray(), []) ?? EMPTY_BOOKING_SHEETS;
+  const liveBookers = useLiveQuery(() => db.bookers.toArray(), []) ?? EMPTY_BOOKERS;
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,7 +43,7 @@ export const OrderBookingView: React.FC = () => {
 
   // New Sheet Form state
   const [newSlipNo, setNewSlipNo] = useState(() => `#TK-${Math.floor(1000 + Math.random() * 9000)}`);
-  const [newBookerId, setNewBookerId] = useState(INITIAL_BOOKERS[0]?.id || '');
+  const [newBookerId, setNewBookerId] = useState('');
   const [newShopName, setNewShopName] = useState('');
   const [newShopAddress, setNewShopAddress] = useState('');
   const [newAreaZone, setNewAreaZone] = useState('Gulberg III (Main Mkt)');
@@ -230,7 +231,7 @@ export const OrderBookingView: React.FC = () => {
       return;
     }
 
-    const booker = INITIAL_BOOKERS.find(b => b.id === newBookerId) || INITIAL_BOOKERS[0];
+    const booker = liveBookers.find(b => b.id === newBookerId) || liveBookers[0];
     const totalQty = lineItems.reduce((sum, item) => sum + item.qty, 0);
     const bookingValue = lineItems.reduce((sum, item) => sum + item.total, 0);
 
@@ -258,6 +259,17 @@ export const OrderBookingView: React.FC = () => {
 
     try {
       await db.bookingSheets.add(newRecord);
+      if (booker) {
+        await db.bookers.update(booker.id, {
+          todayBookings: (booker.todayBookings || 0) + 1,
+          todayUnits: (booker.todayUnits || 0) + totalQty,
+          todaySales: (booker.todaySales || 0) + bookingValue,
+          totalBookingsSheets: (booker.totalBookingsSheets || 0) + 1,
+          totalBookedUnits: (booker.totalBookedUnits || 0) + totalQty,
+          totalDeliveredUnits: (booker.totalDeliveredUnits || 0) + totalQty,
+          totalActualSales: (booker.totalActualSales || 0) + bookingValue,
+        });
+      }
       setIsNewModalOpen(false);
       // Reset form
       setNewShopName('');
@@ -421,7 +433,7 @@ export const OrderBookingView: React.FC = () => {
             className="text-xs bg-slate-50 border border-slate-200 text-slate-700 py-1.5 px-3 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#3FA9A8] cursor-pointer"
           >
             <option value="all">All Bookers</option>
-            {INITIAL_BOOKERS.map(b => (
+            {liveBookers.map(b => (
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
@@ -830,12 +842,12 @@ export const OrderBookingView: React.FC = () => {
                     value={newBookerId}
                     onChange={(e) => {
                       setNewBookerId(e.target.value);
-                      const b = INITIAL_BOOKERS.find(booker => booker.id === e.target.value);
+                      const b = liveBookers.find(booker => booker.id === e.target.value);
                       if (b) setNewAreaZone(`${b.areaKey} Zone`);
                     }}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#3FA9A8] text-slate-900 cursor-pointer"
                   >
-                    {INITIAL_BOOKERS.map(b => (
+                    {liveBookers.map(b => (
                       <option key={b.id} value={b.id}>
                         {b.name} ({b.areaKey})
                       </option>
