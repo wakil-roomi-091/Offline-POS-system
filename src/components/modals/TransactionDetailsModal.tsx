@@ -65,10 +65,16 @@ export const TransactionDetailsModal: React.FC = () => {
               <span className="text-slate-400 font-medium">Payment Status:</span>
               <div>
                 <span className="capitalize font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">
-                  {selectedTransaction.status} via {selectedTransaction.paymentMethod}
+                  {selectedTransaction.status} via {selectedTransaction.paymentMethod === 'credit' ? 'Khata (Credit)' : selectedTransaction.paymentMethod}
                 </span>
               </div>
             </div>
+            {selectedTransaction.customerName && (
+              <div className="col-span-2 bg-teal-50/70 p-2.5 rounded-xl border border-teal-100 flex justify-between items-center mt-1">
+                <span className="text-teal-800 font-semibold text-[11px]">Khata Account:</span>
+                <span className="font-bold text-teal-900 text-xs">{selectedTransaction.customerName} ({selectedTransaction.customerId})</span>
+              </div>
+            )}
           </div>
 
           {/* Itemized breakdown */}

@@ -39,6 +39,9 @@ function getPaymentBadge(method: string) {
   if (m === 'card') {
     return { dot: 'bg-indigo-500', label: 'Card (Meezan)' };
   }
+  if (m === 'credit') {
+    return { dot: 'bg-purple-500', label: 'Khata (Credit)' };
+  }
   return { dot: 'bg-[#3FA9A8]', label: 'Cash' };
 }
 
@@ -576,6 +579,7 @@ export const TransactionsView: React.FC = () => {
           >
             <option value="all">All Payment Methods</option>
             <option value="cash">Cash</option>
+            <option value="credit">Khata (Credit)</option>
             <option value="easypaisa">Easypaisa</option>
             <option value="jazzcash">JazzCash</option>
             <option value="card">Bank Card</option>
@@ -660,7 +664,7 @@ export const TransactionsView: React.FC = () => {
                         <td className={`py-3.5 px-4 ${isSelected ? 'font-bold text-[#3FA9A8]' : isRefunded ? 'font-semibold text-slate-500' : 'font-semibold text-slate-800'}`}>
                           {tx.id}
                           <span className="block text-[10px] font-normal text-slate-400">
-                            {tx.station || 'Terminal 01'}
+                            {tx.customerName ? `Khata: ${tx.customerName}` : (tx.station || 'Terminal 01')}
                           </span>
                         </td>
 

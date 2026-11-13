@@ -11,6 +11,7 @@ import { ReportsView } from './components/reports/ReportsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { OrderBookersView } from './components/bookers/OrderBookersView';
 import { OrderBookingView } from './components/bookers/OrderBookingView';
+import { CustomersView } from './components/customers/CustomersView';
 
 import { PaymentModal } from './components/modals/PaymentModal';
 import { SaleSuccessModal } from './components/modals/SaleSuccessModal';
@@ -92,6 +93,8 @@ export function App() {
         return <ProductsView />;
       case 'transactions':
         return <TransactionsView />;
+      case 'customers':
+        return <CustomersView />;
       case 'expenses':
         return <ExpensesView />;
       case 'cash_closing':

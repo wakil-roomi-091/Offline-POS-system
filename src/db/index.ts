@@ -7,7 +7,9 @@ import type {
   ExpenseRecord, 
   StoreSettings,
   OrderBookingSheet,
-  OrderBooker
+  OrderBooker,
+  Customer,
+  CustomerLedgerEntry
 } from '../types';
 
 export class DinePosDatabase extends Dexie {
@@ -18,6 +20,8 @@ export class DinePosDatabase extends Dexie {
   expenses!: Table<ExpenseRecord, string>;
   bookingSheets!: Table<OrderBookingSheet, string>;
   bookers!: Table<OrderBooker, string>;
+  customers!: Table<Customer, string>;
+  customerLedgers!: Table<CustomerLedgerEntry, string>;
   settings!: Table<{ key: string; value: any }, string>;
 
   constructor() {
@@ -35,6 +39,10 @@ export class DinePosDatabase extends Dexie {
     });
     this.version(3).stores({
       bookers: 'id, name, phone, area, status'
+    });
+    this.version(4).stores({
+      customers: 'id, name, phone, area, status, currentBalance',
+      customerLedgers: 'id, customerId, timestamp, type, referenceId'
     });
   }
 }
@@ -203,7 +211,15 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   offlineSyncStatus: 'synced'
 };
 
-import { INITIAL_TRANSACTIONS, INITIAL_EXPENSES, INITIAL_BOOKING_SHEETS, INITIAL_SHIFTS, INITIAL_BOOKERS } from './seedData';
+import { 
+  INITIAL_TRANSACTIONS, 
+  INITIAL_EXPENSES, 
+  INITIAL_BOOKING_SHEETS, 
+  INITIAL_SHIFTS, 
+  INITIAL_BOOKERS,
+  INITIAL_CUSTOMERS,
+  INITIAL_CUSTOMER_LEDGERS
+} from './seedData';
 
 export async function initializeDatabase() {
   const productCount = await db.products.count();
@@ -236,6 +252,16 @@ export async function initializeDatabase() {
   const bookersCount = await db.bookers.count();
   if (bookersCount === 0) {
     await db.bookers.bulkAdd(INITIAL_BOOKERS);
+  }
+
+  const customerCount = await db.customers.count();
+  if (customerCount === 0) {
+    await db.customers.bulkAdd(INITIAL_CUSTOMERS);
+  }
+
+  const ledgerCount = await db.customerLedgers.count();
+  if (ledgerCount === 0) {
+    await db.customerLedgers.bulkAdd(INITIAL_CUSTOMER_LEDGERS);
   }
 
   const settingsSaved = await db.settings.get('storeConfig');

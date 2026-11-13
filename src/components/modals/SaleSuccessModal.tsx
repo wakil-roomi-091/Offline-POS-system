@@ -46,21 +46,29 @@ export const SaleSuccessModal: React.FC = () => {
           {/* Breakdown summary card */}
           <div className="bg-slate-50 rounded-2xl p-4 text-xs space-y-2 border border-slate-100 text-left">
             <div className="flex justify-between">
-              <span className="text-slate-400">Total Paid</span>
-              <span className="font-bold text-slate-800 text-sm">
-                ${lastCompletedTransaction.total.toFixed(2)}
+              <span className="text-slate-400">Total Amount</span>
+              <span className="font-bold text-slate-800 text-sm font-mono">
+                Rs. {Math.round(lastCompletedTransaction.total).toLocaleString()}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Payment Method</span>
+              <span className="text-slate-400">Payment Tender</span>
               <span className="font-bold uppercase text-teal-700 bg-teal-50 px-2 py-0.5 rounded">
-                {lastCompletedTransaction.paymentMethod}
+                {lastCompletedTransaction.paymentMethod === 'credit' ? 'Khata (Credit)' : lastCompletedTransaction.paymentMethod}
               </span>
             </div>
+            {lastCompletedTransaction.customerName && (
+              <div className="flex justify-between">
+                <span className="text-slate-400">Account / Customer</span>
+                <span className="font-bold text-slate-800">
+                  {lastCompletedTransaction.customerName}
+                </span>
+              </div>
+            )}
             {lastCompletedTransaction.changeDue !== undefined && lastCompletedTransaction.changeDue > 0 && (
-              <div className="flex justify-between border-t border-slate-200/60 pt-2 font-bold text-emerald-600">
+              <div className="flex justify-between border-t border-slate-200/60 pt-2 font-bold text-emerald-600 font-mono">
                 <span>Change Returned</span>
-                <span>${lastCompletedTransaction.changeDue.toFixed(2)}</span>
+                <span>Rs. {Math.round(lastCompletedTransaction.changeDue).toLocaleString()}</span>
               </div>
             )}
           </div>

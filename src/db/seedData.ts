@@ -1,4 +1,4 @@
-import type { Transaction, ExpenseRecord, OrderBookingSheet, OrderBooker, ShiftRecord } from '../types';
+import type { Transaction, ExpenseRecord, OrderBookingSheet, OrderBooker, ShiftRecord, Customer, CustomerLedgerEntry } from '../types';
 
 export const INITIAL_BOOKERS: OrderBooker[] = [
   {
@@ -690,5 +690,261 @@ export const INITIAL_SHIFTS: ShiftRecord[] = [
     zReportNumber: '#Z-2024-0086',
     witnessPin: '4921',
     closingNotes: 'Rs. 50 cash tip surplus deposited in register vault.',
+  }
+];
+
+export const INITIAL_CUSTOMERS: Customer[] = [
+  {
+    id: 'CUST-0101',
+    name: 'Al-Madina General Store',
+    contactPerson: 'Haji Abdul Ghaffar',
+    phone: '+92 301 5552341',
+    email: 'madina.store@gmail.com',
+    address: 'Shop #12, G-Block Commercial Market',
+    area: 'Gulberg III, Lahore',
+    creditLimit: 100000,
+    currentBalance: 38500,
+    status: 'active',
+    createdAt: 1727740800000, // Oct 1, 2024
+    totalPurchases: 125000,
+    totalPaid: 86500,
+    notes: 'Regular wholesale buyer. Bi-weekly settlement cycle on Thursdays.',
+  },
+  {
+    id: 'CUST-0102',
+    name: 'Malik Super Mart',
+    contactPerson: 'Malik Zubair',
+    phone: '+92 322 4431980',
+    email: 'maliksupermart@yahoo.com',
+    address: 'Plaza #4, Sector C, Commercial Area',
+    area: 'DHA Phase 5, Lahore',
+    creditLimit: 150000,
+    currentBalance: 64200,
+    status: 'active',
+    createdAt: 1728086400000, // Oct 5, 2024
+    totalPurchases: 184200,
+    totalPaid: 120000,
+    notes: 'High volume client. Allowed extended credit window up to Rs. 150,000.',
+  },
+  {
+    id: 'CUST-0103',
+    name: 'Chaudhry Sweets & Bakers',
+    contactPerson: 'Chaudhry Tariq',
+    phone: '+92 300 9876543',
+    email: 'chaudhry.sweets@gmail.com',
+    address: 'Main Boulevard, Near Peco Road',
+    area: 'Faisal Town, Lahore',
+    creditLimit: 50000,
+    currentBalance: 14800,
+    status: 'active',
+    createdAt: 1728518400000, // Oct 10, 2024
+    totalPurchases: 64800,
+    totalPaid: 50000,
+    notes: 'Punctual with monthly cheque clearance.',
+  },
+  {
+    id: 'CUST-0104',
+    name: 'Mian Brothers Traders',
+    contactPerson: 'Mian Naveed',
+    phone: '+92 333 1122334',
+    email: 'mianbros.traders@gmail.com',
+    address: 'Shop 7, Bank Square',
+    area: 'Model Town C-Block',
+    creditLimit: 80000,
+    currentBalance: 0,
+    status: 'active',
+    createdAt: 1728950400000, // Oct 15, 2024
+    totalPurchases: 95000,
+    totalPaid: 95000,
+    notes: 'Account fully settled down to zero balance. Prime VIP tier.',
+  },
+  {
+    id: 'CUST-0105',
+    name: 'Rahman Mart & Dept Store',
+    contactPerson: 'Hafiz Rahman',
+    phone: '+92 345 7766554',
+    email: 'rahman.mart@outlook.com',
+    address: 'Plot 28, Main Market G-1',
+    area: 'Johar Town G-1',
+    creditLimit: 40000,
+    currentBalance: 42000,
+    status: 'blocked',
+    createdAt: 1729123200000, // Oct 17, 2024
+    totalPurchases: 112000,
+    totalPaid: 70000,
+    notes: 'Exceeded credit ceiling by Rs. 2,000. Cashier sales blocked until payment recovery.',
+  },
+  {
+    id: 'CUST-0106',
+    name: 'Tariq Kiryana Store',
+    contactPerson: 'Tariq Munir',
+    phone: '+92 312 9988771',
+    address: 'Near Commercial Market Gate #2',
+    area: 'Cavalry Ground, Lahore',
+    creditLimit: 30000,
+    currentBalance: 9500,
+    status: 'active',
+    createdAt: 1729468800000, // Oct 21, 2024
+    totalPurchases: 45000,
+    totalPaid: 35500,
+    notes: 'Local neighborhood outlet. Partial payments every Monday.',
+  }
+];
+
+export const INITIAL_CUSTOMER_LEDGERS: CustomerLedgerEntry[] = [
+  // CUST-0101 Ledgers
+  {
+    id: 'LED-0101-1',
+    customerId: 'CUST-0101',
+    timestamp: 1728115200000,
+    type: 'opening_balance',
+    description: 'Initial Opening Khata Balance',
+    debit: 20000,
+    credit: 0,
+    runningBalance: 20000,
+    collectedBy: 'Admin'
+  },
+  {
+    id: 'LED-0101-2',
+    customerId: 'CUST-0101',
+    timestamp: 1728547200000,
+    type: 'sale_credit',
+    referenceId: 'TX-901421',
+    description: 'POS Bulk Supplies Purchase (Order #4102)',
+    debit: 45000,
+    credit: 0,
+    runningBalance: 65000,
+    collectedBy: 'Bilal Ahmed'
+  },
+  {
+    id: 'LED-0101-3',
+    customerId: 'CUST-0101',
+    timestamp: 1728892800000,
+    type: 'payment_received',
+    referenceId: 'RCPT-0041',
+    description: 'Cash Payment Received at Counter',
+    debit: 0,
+    credit: 35000,
+    runningBalance: 30000,
+    paymentMethod: 'Cash',
+    collectedBy: 'Bilal Ahmed'
+  },
+  {
+    id: 'LED-0101-4',
+    customerId: 'CUST-0101',
+    timestamp: 1729584000000,
+    type: 'sale_credit',
+    referenceId: 'TX-902518',
+    description: 'POS Credit Order (Order #4219)',
+    debit: 8500,
+    credit: 0,
+    runningBalance: 38500,
+    collectedBy: 'Bilal Ahmed'
+  },
+
+  // CUST-0102 Ledgers
+  {
+    id: 'LED-0102-1',
+    customerId: 'CUST-0102',
+    timestamp: 1728201600000,
+    type: 'opening_balance',
+    description: 'Opening Khata Balance',
+    debit: 50000,
+    credit: 0,
+    runningBalance: 50000,
+    collectedBy: 'Admin'
+  },
+  {
+    id: 'LED-0102-2',
+    customerId: 'CUST-0102',
+    timestamp: 1728806400000,
+    type: 'sale_credit',
+    referenceId: 'TX-903110',
+    description: 'Wholesale Food & Drink Cartons (Order #4280)',
+    debit: 74200,
+    credit: 0,
+    runningBalance: 124200,
+    collectedBy: 'Bilal Ahmed'
+  },
+  {
+    id: 'LED-0102-3',
+    customerId: 'CUST-0102',
+    timestamp: 1729324800000,
+    type: 'payment_received',
+    referenceId: 'RCPT-0052',
+    description: 'Bank Transfer Payment (HBL Online)',
+    debit: 0,
+    credit: 60000,
+    runningBalance: 64200,
+    paymentMethod: 'Bank Transfer',
+    collectedBy: 'Manager'
+  },
+
+  // CUST-0103 Ledgers
+  {
+    id: 'LED-0103-1',
+    customerId: 'CUST-0103',
+    timestamp: 1728604800000,
+    type: 'sale_credit',
+    referenceId: 'TX-904011',
+    description: 'Bakery Raw Ingredients Booking',
+    debit: 34800,
+    credit: 0,
+    runningBalance: 34800,
+    collectedBy: 'Bilal Ahmed'
+  },
+  {
+    id: 'LED-0103-2',
+    customerId: 'CUST-0103',
+    timestamp: 1729036800000,
+    type: 'payment_received',
+    referenceId: 'RCPT-0061',
+    description: 'Cash Partial Payment Received',
+    debit: 0,
+    credit: 20000,
+    runningBalance: 14800,
+    paymentMethod: 'Cash',
+    collectedBy: 'Bilal Ahmed'
+  },
+
+  // CUST-0105 Ledgers
+  {
+    id: 'LED-0105-1',
+    customerId: 'CUST-0105',
+    timestamp: 1729123200000,
+    type: 'sale_credit',
+    referenceId: 'TX-905102',
+    description: 'Credit Order #4390 (Catering pack)',
+    debit: 42000,
+    credit: 0,
+    runningBalance: 42000,
+    collectedBy: 'Bilal Ahmed'
+  },
+
+  // CUST-0106 Ledgers
+  {
+    id: 'LED-0106-1',
+    customerId: 'CUST-0106',
+    timestamp: 1729468800000,
+    type: 'sale_credit',
+    referenceId: 'TX-906001',
+    description: 'POS Retail Invoice Credit',
+    debit: 14500,
+    credit: 0,
+    runningBalance: 14500,
+    collectedBy: 'Bilal Ahmed'
+  },
+  {
+    id: 'LED-0106-2',
+    customerId: 'CUST-0106',
+    timestamp: 1729641600000,
+    type: 'payment_received',
+    referenceId: 'RCPT-0075',
+    description: 'JazzCash Payment Received',
+    debit: 0,
+    credit: 5000,
+    runningBalance: 9500,
+    paymentMethod: 'JazzCash',
+    collectedBy: 'Bilal Ahmed'
   }
 ];

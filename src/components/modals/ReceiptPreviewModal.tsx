@@ -62,6 +62,12 @@ export const ReceiptPreviewModal: React.FC = () => {
               <span>SERVER: {transaction.cashierName}</span>
               <span className="uppercase">{transaction.status}</span>
             </div>
+            {transaction.customerName && (
+              <div className="flex justify-between border-t border-slate-100 pt-0.5">
+                <span>ACCOUNT: {transaction.customerName}</span>
+                <span className="text-[9px]">{transaction.customerId}</span>
+              </div>
+            )}
           </div>
 
           {/* Itemized Table */}
@@ -76,7 +82,7 @@ export const ReceiptPreviewModal: React.FC = () => {
                 <span className="w-1/2 truncate font-medium">{item.name}</span>
                 <span className="w-1/4 text-center">{item.qty}x</span>
                 <span className="w-1/4 text-right font-semibold">
-                  ${(item.price * item.qty).toFixed(2)}
+                  Rs. {Math.round(item.price * item.qty).toLocaleString()}
                 </span>
               </div>
             ))}
@@ -86,28 +92,30 @@ export const ReceiptPreviewModal: React.FC = () => {
           <div className="py-2.5 border-b border-dashed border-slate-300 space-y-1 text-[11px]">
             <div className="flex justify-between">
               <span>SUBTOTAL:</span>
-              <span>${transaction.subtotal.toFixed(2)}</span>
+              <span>Rs. {Math.round(transaction.subtotal).toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
               <span>TAX (8%):</span>
-              <span>${transaction.tax.toFixed(2)}</span>
+              <span>Rs. {Math.round(transaction.tax).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-sm font-bold text-slate-900 pt-1 border-t border-slate-200">
               <span>TOTAL:</span>
-              <span>${transaction.total.toFixed(2)}</span>
+              <span>Rs. {Math.round(transaction.total).toLocaleString()}</span>
             </div>
           </div>
 
           {/* Tender & Change */}
           <div className="py-2.5 border-b border-dashed border-slate-300 text-[10px] space-y-0.5">
             <div className="flex justify-between">
-              <span className="uppercase">PAID BY {transaction.paymentMethod}:</span>
-              <span>${(transaction.amountReceived || transaction.total).toFixed(2)}</span>
+              <span className="uppercase">PAID BY {transaction.paymentMethod === 'credit' ? 'KHATA (CREDIT)' : transaction.paymentMethod}:</span>
+              <span>Rs. {Math.round(transaction.amountReceived || transaction.total).toLocaleString()}</span>
             </div>
-            <div className="flex justify-between font-bold">
-              <span>CHANGE DUE:</span>
-              <span>${(transaction.changeDue || 0).toFixed(2)}</span>
-            </div>
+            {transaction.changeDue !== undefined && transaction.changeDue > 0 && (
+              <div className="flex justify-between font-bold">
+                <span>CHANGE DUE:</span>
+                <span>Rs. {Math.round(transaction.changeDue || 0).toLocaleString()}</span>
+              </div>
+            )}
           </div>
 
           {/* Footer & Barcode Simulation */}

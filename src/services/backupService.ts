@@ -6,7 +6,9 @@ import type {
   CashMovement, 
   ExpenseRecord, 
   OrderBookingSheet,
-  OrderBooker
+  OrderBooker,
+  Customer,
+  CustomerLedgerEntry
 } from '../types';
 
 export interface BackupMetadata {
@@ -24,6 +26,8 @@ export interface BackupMetadata {
     cashMovements: number;
     bookingSheets: number;
     bookers: number;
+    customers?: number;
+    customerLedgers?: number;
     settings: number;
   };
 }
@@ -37,6 +41,8 @@ export interface BackupPayload {
   cashMovements: CashMovement[];
   bookingSheets: OrderBookingSheet[];
   bookers?: OrderBooker[];
+  customers?: Customer[];
+  customerLedgers?: CustomerLedgerEntry[];
   settings: { key: string; value: any }[];
 }
 
@@ -67,6 +73,8 @@ export const backupService = {
     const cashMovements = await db.cashMovements.toArray();
     const bookingSheets = await db.bookingSheets.toArray();
     const bookers = await db.bookers.toArray();
+    const customers = await db.customers.toArray();
+    const customerLedgers = await db.customerLedgers.toArray();
     const settings = await db.settings.toArray();
 
     const metadata: BackupMetadata = {
@@ -84,6 +92,8 @@ export const backupService = {
         cashMovements: cashMovements.length,
         bookingSheets: bookingSheets.length,
         bookers: bookers.length,
+        customers: customers.length,
+        customerLedgers: customerLedgers.length,
         settings: settings.length
       }
     };
@@ -97,6 +107,8 @@ export const backupService = {
       cashMovements,
       bookingSheets,
       bookers,
+      customers,
+      customerLedgers,
       settings
     };
   },
@@ -159,6 +171,8 @@ export const backupService = {
           db.cashMovements,
           db.bookingSheets,
           db.bookers,
+          db.customers,
+          db.customerLedgers,
           db.settings
         ],
         async () => {
@@ -208,6 +222,20 @@ export const backupService = {
             await db.bookers.clear();
             if (payload.bookers.length > 0) {
               await db.bookers.bulkAdd(payload.bookers);
+            }
+          }
+
+          if (Array.isArray(payload.customers)) {
+            await db.customers.clear();
+            if (payload.customers.length > 0) {
+              await db.customers.bulkAdd(payload.customers);
+            }
+          }
+
+          if (Array.isArray(payload.customerLedgers)) {
+            await db.customerLedgers.clear();
+            if (payload.customerLedgers.length > 0) {
+              await db.customerLedgers.bulkAdd(payload.customerLedgers);
             }
           }
 

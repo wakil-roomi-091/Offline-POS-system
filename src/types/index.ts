@@ -39,7 +39,7 @@ export interface CartItem {
   variation?: string;
 }
 
-export type PaymentMethod = 'cash' | 'card' | 'qr' | 'split' | 'easypaisa' | 'jazzcash';
+export type PaymentMethod = 'cash' | 'card' | 'qr' | 'split' | 'easypaisa' | 'jazzcash' | 'credit';
 
 export interface Transaction {
   id: string;
@@ -58,6 +58,8 @@ export interface Transaction {
   station: string;
   notes?: string;
   referenceId?: string;
+  customerId?: string;
+  customerName?: string;
 }
 
 export interface ShiftRecord {
@@ -194,6 +196,38 @@ export interface OrderBookingSheet {
   items?: BookingSheetItem[];
 }
 
+export interface Customer {
+  id: string; // e.g. 'CUST-0101'
+  name: string;
+  phone: string;
+  contactPerson?: string;
+  email?: string;
+  address?: string;
+  area?: string;
+  creditLimit: number; // Maximum allowed credit (e.g. 100,000 PKR)
+  currentBalance: number; // Current outstanding credit balance (Receivable)
+  status: 'active' | 'blocked';
+  createdAt: number;
+  notes?: string;
+  totalPurchases?: number;
+  totalPaid?: number;
+}
+
+export interface CustomerLedgerEntry {
+  id: string; // e.g. 'LED-0012'
+  customerId: string;
+  timestamp: number;
+  type: 'sale_credit' | 'payment_received' | 'refund_adjustment' | 'opening_balance';
+  referenceId?: string; // invoice # or payment slip #
+  description: string;
+  debit: number; // Increases customer debt (e.g. Credit sale)
+  credit: number; // Decreases customer debt (e.g. Cash payment received)
+  runningBalance: number;
+  paymentMethod?: string; // e.g. 'Cash', 'Bank Transfer', 'JazzCash'
+  collectedBy?: string;
+  notes?: string;
+}
+
 export type ActiveTab = 
   | 'dashboard'
   | 'pos'
@@ -201,6 +235,7 @@ export type ActiveTab =
   | 'transactions'
   | 'expenses'
   | 'cash_closing'
+  | 'customers'
   | 'order_bookers'
   | 'order_booking'
   | 'reports'
