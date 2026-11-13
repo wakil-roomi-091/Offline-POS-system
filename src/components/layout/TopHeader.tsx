@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, ShoppingBag, Database, Wifi, WifiOff, HardDrive, RefreshCw } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
+import { useCartStore } from '../../store/useCartStore';
 import { backupService, type SnapshotSummary } from '../../services/backupService';
 
 export const TopHeader: React.FC = () => {
   const { globalSearch, setGlobalSearch, setActiveTab } = useUIStore();
+  const { cart } = useCartStore();
+  const totalCartItems = cart.reduce((sum, item) => sum + item.qty, 0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const [storageEstimate, setStorageEstimate] = useState<{ usedMB: string; quotaMB: string } | null>(null);
@@ -185,28 +188,29 @@ export const TopHeader: React.FC = () => {
           )}
         </div>
 
-        {/* Notification Bell with Badge 3 */}
+        {/* Notification Bell */}
         <button
           type="button"
+          onClick={() => setActiveTab('reports')}
           className="relative w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
-          title="Notifications"
+          title="Audit Reports & Ledger"
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#2D8A89] text-white text-[9px] font-bold flex items-center justify-center border-2 border-white shadow-xs">
-            3
-          </span>
         </button>
 
-        {/* Register / Orders Bag with Badge 2 */}
+        {/* Register / Orders Bag */}
         <button
           type="button"
+          onClick={() => setActiveTab('pos')}
           className="relative w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
-          title="Active Orders Queue"
+          title="Active Orders & POS Cart"
         >
           <ShoppingBag className="w-4 h-4" />
-          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#2D8A89] text-white text-[9px] font-bold flex items-center justify-center border-2 border-white shadow-xs">
-            2
-          </span>
+          {totalCartItems > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#3FA9A8] text-white text-[9px] font-bold flex items-center justify-center border-2 border-white shadow-xs">
+              {totalCartItems}
+            </span>
+          )}
         </button>
       </div>
     </header>

@@ -6,10 +6,12 @@ import { ProductCatalog } from './ProductCatalog';
 import { useCartStore } from '../../store/useCartStore';
 import { useShiftStore } from '../../store/useShiftStore';
 import { useUIStore } from '../../store/useUIStore';
+import { useSecurityStore } from '../../store/useSecurityStore';
 
 export const POSTerminal: React.FC = () => {
   const { cart, getTotal, clearCart } = useCartStore();
   const { currentShift, station } = useShiftStore();
+  const { requestPinAuthorization } = useSecurityStore();
   const { 
     setPaymentModalOpen, 
     setOpeningCashModalOpen, 
@@ -22,9 +24,9 @@ export const POSTerminal: React.FC = () => {
 
   const handleClearCart = () => {
     if (cart.length === 0) return;
-    if (confirm('Are you sure you want to clear the current order?')) {
+    requestPinAuthorization('Authorize Resetting Active Cart', () => {
       clearCart();
-    }
+    });
   };
 
   return (
@@ -93,7 +95,7 @@ export const POSTerminal: React.FC = () => {
             className="inline-flex items-center gap-2 bg-[#3FA9A8] hover:bg-[#349695] disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-sm hover:shadow transition-all cursor-pointer active:scale-98"
           >
             <CreditCard className="w-4 h-4" />
-            <span>Pay (${total.toFixed(2)})</span>
+            <span>Pay (Rs. {Math.round(total).toLocaleString()})</span>
           </button>
         </div>
       </div>

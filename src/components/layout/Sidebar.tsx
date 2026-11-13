@@ -122,7 +122,6 @@ const NAV_ITEMS: NavItem[] = [
   {
     id: 'order_bookers',
     label: 'Order Bookers',
-    badge: 18,
     renderIcon: (isActive) => (
       <svg
         className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
@@ -142,7 +141,6 @@ const NAV_ITEMS: NavItem[] = [
   {
     id: 'order_booking',
     label: 'Order Booking',
-    badge: 48,
     renderIcon: (isActive) => (
       <svg
         className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { useShiftStore } from '../../store/useShiftStore';
 import { useUIStore } from '../../store/useUIStore';
+import { useSecurityStore } from '../../store/useSecurityStore';
 import { backupService } from '../../services/backupService';
 import type { ShiftRecord, Transaction, CashMovement, ExpenseRecord } from '../../types';
 import { 
@@ -23,6 +24,7 @@ const DEFAULT_FALLBACK_SHIFT_START = 1729742400000;
 
 export const CashClosingView: React.FC = () => {
   const { currentShift, closeShift, cashierName, station } = useShiftStore();
+  const { verifyPin, managerWitnessPin } = useSecurityStore();
   const { setActiveTab, setOpeningCashModalOpen } = useUIStore();
 
   // Live queries from Dexie
@@ -153,8 +155,13 @@ export const CashClosingView: React.FC = () => {
   };
 
   const handleFinalizeShift = async () => {
-    if (!witnessPin.trim()) {
+    const { verifyPin, managerWitnessPin } = useSecurityStore.getState();
+    if (managerWitnessPin && !witnessPin.trim()) {
       alert('Please enter Manager Witness PIN to authorize shift closing.');
+      return;
+    }
+    if (managerWitnessPin && !verifyPin(witnessPin)) {
+      alert('Invalid Manager Witness PIN. Please enter the correct 4-digit supervisor PIN to authorize shift closing.');
       return;
     }
 
@@ -759,9 +766,14 @@ export const CashClosingView: React.FC = () => {
 
               {/* Manager Witness PIN */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5" htmlFor="witness-pin">
-                  Manager Witness PIN / Authorization
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700" htmlFor="witness-pin">
+                    Manager Witness PIN / Authorization
+                  </label>
+                  {!managerWitnessPin && (
+                    <span className="text-[10px] text-slate-400 font-normal">Optional (Security Policy)</span>
+                  )}
+                </div>
                 <div className="relative">
                   <input
                     id="witness-pin"
@@ -769,11 +781,19 @@ export const CashClosingView: React.FC = () => {
                     disabled={!isShiftOpen}
                     value={witnessPin}
                     onChange={(e) => setWitnessPin(e.target.value)}
-                    placeholder="Enter 4-digit supervisor PIN"
+                    placeholder={managerWitnessPin ? "Enter 4-digit supervisor PIN" : "Optional 4-digit PIN"}
                     className="w-full text-xs bg-white border border-slate-200 rounded-xl pl-3 pr-20 py-2 focus:ring-1 focus:ring-[#3FA9A8] focus:border-[#3FA9A8] text-slate-800 tracking-widest font-mono outline-none disabled:bg-slate-50"
                   />
-                  <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-[10px] font-semibold text-emerald-600">
-                    JD Verified
+                  <span className={`absolute inset-y-0 right-0 pr-3 flex items-center text-[10px] font-semibold ${
+                    verifyPin(witnessPin)
+                      ? 'text-emerald-600'
+                      : witnessPin.length > 0
+                      ? 'text-rose-500'
+                      : managerWitnessPin
+                      ? 'text-amber-500'
+                      : 'text-slate-400'
+                  }`}>
+                    {verifyPin(witnessPin) ? '✓ PIN Verified' : witnessPin.length > 0 ? 'Invalid PIN' : managerWitnessPin ? 'Required' : 'Optional'}
                   </span>
                 </div>
               </div>

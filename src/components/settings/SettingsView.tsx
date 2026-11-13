@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../../db';
 import { backupService, type SnapshotSummary, type BackupPayload } from '../../services/backupService';
+import { useSecurityStore } from '../../store/useSecurityStore';
 import {
   Store,
   Printer,
@@ -330,10 +331,36 @@ Local SQLite Audit Verified • Terminal-01
     showToast('Receipt ESC/POS raw text spec exported!');
   };
 
+  const handleToggleWitnessPin = () => {
+    const next = !managerWitnessPin;
+    setManagerWitnessPin(next);
+    useSecurityStore.getState().setSecurityToggles(adminPinRequired, next);
+    showToast(next ? 'Manager witness PIN enabled for cash closing.' : 'Manager witness PIN disabled.');
+  };
+
+  const handleToggleAdminPin = () => {
+    const next = !adminPinRequired;
+    setAdminPinRequired(next);
+    useSecurityStore.getState().setSecurityToggles(next, managerWitnessPin);
+    showToast(next ? 'Supervisor PIN required for item void & order clear.' : 'Supervisor PIN requirement disabled.');
+  };
+
   const handleChangePin = () => {
+    const currentPin = useSecurityStore.getState().managerPin;
+    const enteredCurrent = prompt('Enter Current Supervisor PIN to authorize change:', '');
+    if (enteredCurrent === null) return;
+    if (enteredCurrent.trim() !== currentPin) {
+      alert('Incorrect current supervisor PIN. Unauthorized.');
+      return;
+    }
+
     const newPin = prompt('Enter new 4-digit Manager Authorization PIN:', '1234');
     if (newPin && newPin.trim().length >= 4) {
-      showToast('Manager PIN updated successfully!');
+      useSecurityStore.getState().updateManagerPin(newPin.trim()).then((ok) => {
+        if (ok) showToast('Manager Authorization PIN updated and saved successfully!');
+      });
+    } else if (newPin !== null) {
+      alert('PIN must be at least 4 digits.');
     }
   };
 
@@ -1068,7 +1095,7 @@ Local SQLite Audit Verified • Terminal-01
                     </div>
                     <button
                       type="button"
-                      onClick={() => setManagerWitnessPin(!managerWitnessPin)}
+                      onClick={handleToggleWitnessPin}
                       className={`relative inline-flex items-center h-6 w-10 rounded-full transition-colors cursor-pointer ${
                         managerWitnessPin ? 'bg-[#3FA9A8]' : 'bg-slate-300'
                       }`}
@@ -1093,7 +1120,7 @@ Local SQLite Audit Verified • Terminal-01
                     </div>
                     <button
                       type="button"
-                      onClick={() => setAdminPinRequired(!adminPinRequired)}
+                      onClick={handleToggleAdminPin}
                       className={`relative inline-flex items-center h-6 w-10 rounded-full transition-colors cursor-pointer ${
                         adminPinRequired ? 'bg-[#3FA9A8]' : 'bg-slate-300'
                       }`}

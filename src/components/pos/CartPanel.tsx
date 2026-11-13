@@ -2,6 +2,7 @@ import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCartStore } from '../../store/useCartStore';
 import { useUIStore } from '../../store/useUIStore';
+import { useSecurityStore } from '../../store/useSecurityStore';
 import { db } from '../../db';
 import { ShoppingBag, Trash2, Plus, Minus, FileText } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export const CartPanel: React.FC = () => {
     setOrderNote 
   } = useCartStore();
   const { setPaymentModalOpen } = useUIStore();
+  const { requestPinAuthorization } = useSecurityStore();
 
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
 
@@ -52,7 +54,11 @@ export const CartPanel: React.FC = () => {
           {cart.length > 0 && (
             <button
               type="button"
-              onClick={clearCart}
+              onClick={() => {
+                requestPinAuthorization('Authorize Clearing Active Sale', () => {
+                  clearCart();
+                });
+              }}
               className="text-xs font-semibold text-rose-500 hover:text-rose-700 transition cursor-pointer"
             >
               Clear Order
@@ -121,7 +127,11 @@ export const CartPanel: React.FC = () => {
                   {/* Delete Trash Icon */}
                   <button 
                     type="button"
-                    onClick={() => removeFromCart(item.id)} 
+                    onClick={() => {
+                      requestPinAuthorization(`Authorize Deleting "${item.name}" from Sale`, () => {
+                        removeFromCart(item.id);
+                      });
+                    }} 
                     className="text-slate-300 hover:text-rose-500 p-1 rounded-lg transition-colors cursor-pointer"
                     title="Remove item"
                   >

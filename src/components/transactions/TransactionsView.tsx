@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { useUIStore } from '../../store/useUIStore';
+import { useSecurityStore } from '../../store/useSecurityStore';
 import { format } from 'date-fns';
 import { INITIAL_TRANSACTIONS } from '../../db/seedData';
 import type { Transaction } from '../../types';
@@ -43,6 +44,7 @@ function getPaymentBadge(method: string) {
 
 export const TransactionsView: React.FC = () => {
   const { setSelectedTransaction, setReceiptPreviewModalOpen } = useUIStore();
+  const { requestPinAuthorization } = useSecurityStore();
 
   // Stable reference timestamp on mount for render purity
   const [baseTimestamp] = useState(() => Date.now());
@@ -252,14 +254,14 @@ export const TransactionsView: React.FC = () => {
     setReceiptPreviewModalOpen(true);
   };
 
-  const handleRefundOrVoid = async (tx: Transaction) => {
+  const handleRefundOrVoid = (tx: Transaction) => {
     const nextStatus = tx.status === 'refunded' ? 'completed' : 'refunded';
     const isRefunding = nextStatus === 'refunded';
-    const confirmMessage = isRefunding
-      ? `Issue Refund for Ticket ${tx.id}?\n\nThis will mark the ticket as REFUNDED and automatically restore ${tx.items.reduce((s, i) => s + i.qty, 0)} item(s) back into inventory stock.`
-      : `Restore Ticket ${tx.id} to COMPLETED?\n\nThis will re-deduct ${tx.items.reduce((s, i) => s + i.qty, 0)} item(s) from inventory stock.`;
+    const reason = isRefunding
+      ? `Authorize Refunding Receipt ${tx.id} & Restoring Stock`
+      : `Authorize Restoring Receipt ${tx.id} to Completed`;
 
-    if (confirm(confirmMessage)) {
+    requestPinAuthorization(reason, async () => {
       try {
         await db.transaction('rw', [db.transactions, db.products], async () => {
           // 1. Update transaction status
@@ -287,7 +289,7 @@ export const TransactionsView: React.FC = () => {
         console.error('Error updating status and inventory:', err);
         alert('Failed to update transaction status. Please try again.');
       }
-    }
+    });
   };
 
   const handleExportCSV = () => {

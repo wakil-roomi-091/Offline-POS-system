@@ -20,9 +20,11 @@ import { ProductFormModal } from './components/modals/ProductFormModal';
 import { OpeningCashModal } from './components/modals/OpeningCashModal';
 import { CashMovementModal } from './components/modals/CashMovementModal';
 import { TransactionDetailsModal } from './components/modals/TransactionDetailsModal';
+import { SupervisorPinModal } from './components/modals/SupervisorPinModal';
 
 import { useUIStore } from './store/useUIStore';
 import { useShiftStore } from './store/useShiftStore';
+import { useSecurityStore } from './store/useSecurityStore';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -77,6 +79,7 @@ export function App() {
 
   useEffect(() => {
     useShiftStore.getState().initShift();
+    useSecurityStore.getState().loadSecurityConfig();
   }, []);
 
   const renderActiveView = () => {
@@ -133,6 +136,7 @@ export function App() {
       <OpeningCashModal />
       <CashMovementModal />
       <TransactionDetailsModal />
+      <SupervisorPinModal />
     </div>
   );
 }

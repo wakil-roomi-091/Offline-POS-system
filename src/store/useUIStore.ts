@@ -47,7 +47,7 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  activeTab: 'expenses',
+  activeTab: 'pos',
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   globalSearch: '',
