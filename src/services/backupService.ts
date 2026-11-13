@@ -290,10 +290,18 @@ export const backupService = {
       hour12: true
     });
 
-    const totalRecords = Object.values(payload.metadata.counts).reduce(
-      (a: number, b) => a + (typeof b === 'number' ? b : 0),
-      0
-    );
+    const counts = payload.metadata.counts;
+    const totalRecords: number =
+      (counts.products || 0) +
+      (counts.transactions || 0) +
+      (counts.expenses || 0) +
+      (counts.shifts || 0) +
+      (counts.cashMovements || 0) +
+      (counts.bookingSheets || 0) +
+      (counts.bookers || 0) +
+      (counts.customers || 0) +
+      (counts.customerLedgers || 0) +
+      (counts.settings || 0);
 
     const snapshot: SnapshotSummary = {
       id: `snap_${Date.now()}`,
