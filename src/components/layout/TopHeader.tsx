@@ -99,7 +99,7 @@ export const TopHeader: React.FC = () => {
             type="text"
             value={globalSearch}
             onChange={(e) => setGlobalSearch(e.target.value)}
-            placeholder="Search dishes, menu items, order #..."
+            placeholder="Scan barcode, SKU, product, invoice #..."
             className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-12 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#3FA9A8] transition-all"
           />
           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 border border-slate-200 bg-white text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded-md">

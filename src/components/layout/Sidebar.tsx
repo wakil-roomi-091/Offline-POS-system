@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useUIStore } from '../../store/useUIStore';
 import type { ActiveTab } from '../../types';
 
@@ -9,7 +9,8 @@ interface NavItem {
   renderIcon: (isActive: boolean) => React.ReactNode;
 }
 
-const NAV_ITEMS: NavItem[] = [
+// 100% Retail Counter & Shop Management Primary Navigation
+const RETAIL_NAV_ITEMS: NavItem[] = [
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -50,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'products',
-    label: 'Products',
+    label: 'Products & Stock',
     renderIcon: (isActive) => (
       <svg
         className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
@@ -69,7 +70,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'transactions',
-    label: 'Transactions',
+    label: 'Sales History',
     renderIcon: (isActive) => (
       <svg
         className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
@@ -104,7 +105,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'expenses',
-    label: 'Expenses',
+    label: 'Expenses & Bills',
     renderIcon: (isActive) => (
       <svg
         className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
@@ -139,46 +140,8 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
-    id: 'order_bookers',
-    label: 'Order Bookers',
-    renderIcon: (isActive) => (
-      <svg
-        className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-      >
-        <path
-          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'order_booking',
-    label: 'Order Booking',
-    renderIcon: (isActive) => (
-      <svg
-        className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-      >
-        <path
-          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
     id: 'reports',
-    label: 'Reports',
+    label: 'Reports & Analytics',
     renderIcon: (isActive) => (
       <svg
         className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
@@ -217,18 +180,62 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+// Optional Field Fleet Navigation (Collapsible for wholesale/distribution or field sales)
+const FLEET_NAV_ITEMS: NavItem[] = [
+  {
+    id: 'order_bookers',
+    label: 'Order Bookers',
+    renderIcon: (isActive) => (
+      <svg
+        className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: 'order_booking',
+    label: 'Order Booking',
+    renderIcon: (isActive) => (
+      <svg
+        className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#3FA9A8]' : 'text-white/70'}`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+];
+
 export const Sidebar: React.FC = () => {
   const { activeTab, setActiveTab } = useUIStore();
+  const isFleetActive = activeTab === 'order_bookers' || activeTab === 'order_booking';
+  const [fleetExpanded, setFleetExpanded] = useState<boolean>(isFleetActive);
 
   return (
     <aside 
-      className="w-[260px] min-w-[260px] bg-gradient-to-b from-[#3FA9A8] to-[#349695] text-white flex flex-col justify-between p-4 z-20 shadow-lg select-none font-sans"
+      className="w-[260px] min-w-[260px] bg-gradient-to-b from-[#3FA9A8] to-[#349695] text-white flex flex-col justify-between p-4 z-20 shadow-lg select-none font-sans overflow-y-auto"
       data-purpose="app-sidebar"
     >
       {/* Top Brand & Navigation */}
-      <div className="space-y-6">
+      <div className="space-y-5">
         {/* Brand Logo & App Name */}
-        <div className="flex items-center gap-3 px-2 pt-1 pb-2">
+        <div className="flex items-center gap-3 px-2 pt-1 pb-1">
           <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center p-2 shadow-inner">
             <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
               <rect height="7" rx="2" width="7" x="3" y="3"></rect>
@@ -239,13 +246,13 @@ export const Sidebar: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white leading-tight">DinePos</h1>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-teal-100 opacity-90">Restaurant Suite</p>
+            <p className="text-[10px] font-semibold tracking-widest uppercase text-teal-100 opacity-90">Retail & POS Suite</p>
           </div>
         </div>
 
-        {/* Main Navigation Menu */}
+        {/* Main Retail Navigation Menu */}
         <nav className="space-y-1">
-          {NAV_ITEMS.map((item) => {
+          {RETAIL_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.id;
             return (
               <button
@@ -258,7 +265,7 @@ export const Sidebar: React.FC = () => {
                 }`}
               >
                 {item.renderIcon(isActive)}
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
                 {item.badge !== undefined && (
                   <span
                     className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -273,6 +280,50 @@ export const Sidebar: React.FC = () => {
               </button>
             );
           })}
+
+          {/* Optional Field Fleet Collapsible Section */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setFleetExpanded(!fleetExpanded)}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-white/60 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2 tracking-wider uppercase text-[10px]">
+                Field Fleet (Optional)
+              </span>
+              <svg
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${fleetExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {fleetExpanded && (
+              <div className="mt-1 space-y-1 pl-1">
+                {FLEET_NAV_ITEMS.map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-xs cursor-pointer ${
+                        isActive
+                          ? 'font-semibold bg-white text-[#3FA9A8] shadow-md'
+                          : 'font-medium text-white/70 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {item.renderIcon(isActive)}
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </nav>
       </div>
 
@@ -280,7 +331,7 @@ export const Sidebar: React.FC = () => {
       <div className="space-y-3 pt-4 border-t border-white/10">
         {/* Help Support Widget */}
         <div 
-          onClick={() => alert('DinePos Help & Support: Hotline available 24/7 at +1 (555) 234-5678')}
+          onClick={() => alert('Retail POS Help & Support: Hotline available 24/7')}
           className="bg-white/10 backdrop-blur-sm p-3 rounded-2xl flex items-center gap-3 border border-white/10 cursor-pointer hover:bg-white/15 transition-colors"
         >
           <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
@@ -290,7 +341,7 @@ export const Sidebar: React.FC = () => {
           </div>
           <div className="truncate text-left">
             <p className="text-xs font-semibold text-white">Need Help?</p>
-            <p className="text-[11px] text-teal-100 opacity-90 truncate">Contact support</p>
+            <p className="text-[11px] text-teal-100 opacity-90 truncate">Retail POS Guide & Support</p>
           </div>
         </div>
 
