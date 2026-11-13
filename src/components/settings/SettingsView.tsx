@@ -13,6 +13,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
+  ShieldCheck,
   FileText,
   Check
 } from 'lucide-react';
@@ -65,7 +66,8 @@ export const SettingsView: React.FC = () => {
     transactions: 0,
     expenses: 0,
     bookingSheets: 0,
-    shifts: 0
+    shifts: 0,
+    customers: 0
   });
   const [targetDir, setTargetDir] = useState('Local Backups Directory (IndexedDB / AppData)');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -81,19 +83,21 @@ export const SettingsView: React.FC = () => {
 
   const refreshCounts = async () => {
     try {
-      const [pCount, tCount, eCount, bCount, sCount] = await Promise.all([
+      const [pCount, tCount, eCount, bCount, sCount, cCount] = await Promise.all([
         db.products.count(),
         db.transactions.count(),
         db.expenses.count(),
         db.bookingSheets.count(),
-        db.shifts.count()
+        db.shifts.count(),
+        db.customers.count()
       ]);
       setRecordCounts({
         products: pCount,
         transactions: tCount,
         expenses: eCount,
         bookingSheets: bCount,
-        shifts: sCount
+        shifts: sCount,
+        customers: cCount
       });
     } catch (err) {
       console.error('Failed to load counts:', err);
@@ -1221,18 +1225,21 @@ Local SQLite Audit Verified • Terminal-01
               </div>
 
               {/* Data Safety Protocol Notice */}
-              <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 text-amber-900 text-xs leading-relaxed">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="bg-teal-50/70 border border-teal-200 rounded-2xl p-4 flex items-start gap-3 text-teal-950 text-xs leading-relaxed">
+                <ShieldCheck className="w-5 h-5 text-[#3FA9A8] shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="font-bold text-amber-950">Transactional Restore &amp; Safety Protocol</h4>
-                  <p className="mt-0.5 text-amber-800">
-                    Restoring a backup cleanly updates your local database tables. To ensure absolute zero data loss, the system generates an automated <strong>Pre-Restore Safety Snapshot</strong> in your local vault before any restore or rollback is committed.
+                  <h4 className="font-bold text-teal-900 flex items-center gap-2">
+                    Active Database Protection &amp; Zero-Data-Loss Protocol
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold">Protected</span>
+                  </h4>
+                  <p className="mt-0.5 text-teal-800">
+                    All local SQLite/IndexedDB tables are continuously protected. The system automatically creates an emergency rollback snapshot in your local vault before any restore or database operation is committed.
                   </p>
                 </div>
               </div>
 
               {/* Live Record Counts Matrix */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Menu Catalog</span>
                   <div className="mt-2 flex items-baseline justify-between">
@@ -1276,6 +1283,15 @@ Local SQLite Audit Verified • Terminal-01
                     <span className="text-xs font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">Sessions</span>
                   </div>
                   <span className="text-[10px] text-slate-400 mt-2 block">X &amp; Z closing records</span>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Khata Accounts</span>
+                  <div className="mt-2 flex items-baseline justify-between">
+                    <span className="text-2xl font-black text-slate-800">{recordCounts.customers}</span>
+                    <span className="text-xs font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">Profiles</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-2 block">Customer receivables</span>
                 </div>
               </div>
 

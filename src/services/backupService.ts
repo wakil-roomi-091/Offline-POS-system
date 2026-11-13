@@ -11,6 +11,16 @@ import type {
   CustomerLedgerEntry
 } from '../types';
 
+declare global {
+  interface Window {
+    electronAPI?: {
+      saveAutoSnapshot?: (data: string, id: string) => Promise<{ success: boolean; filePath?: string }>;
+      saveBackupFile?: (filename: string, content: string) => Promise<{ success: boolean; filePath?: string; canceled?: boolean }>;
+      listLocalBackups?: () => Promise<{ directory?: string }>;
+    };
+  }
+}
+
 export interface BackupMetadata {
   app: string;
   version: string;
@@ -43,7 +53,7 @@ export interface BackupPayload {
   bookers?: OrderBooker[];
   customers?: Customer[];
   customerLedgers?: CustomerLedgerEntry[];
-  settings: { key: string; value: any }[];
+  settings: { key: string; value: unknown }[];
 }
 
 export interface SnapshotSummary {
@@ -77,12 +87,14 @@ export const backupService = {
     const customerLedgers = await db.customerLedgers.toArray();
     const settings = await db.settings.toArray();
 
+    const isElectron = Boolean(window.electronAPI);
+
     const metadata: BackupMetadata = {
       app: 'DinePos',
       version: '2.4.1',
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
-      environment: (window as any).electronAPI ? 'electron' : 'browser',
+      environment: isElectron ? 'electron' : 'browser',
       reason,
       counts: {
         products: products.length,
@@ -116,14 +128,16 @@ export const backupService = {
   /**
    * Validates if a parsed object is a valid DinePos backup payload.
    */
-  validateBackup(data: any): { valid: boolean; error?: string; counts?: BackupMetadata['counts'] } {
+  validateBackup(data: unknown): { valid: boolean; error?: string; counts?: BackupMetadata['counts'] } {
     if (!data || typeof data !== 'object') {
       return { valid: false, error: 'Invalid backup file: Not a valid JSON object.' };
     }
 
+    const payload = data as Partial<BackupPayload>;
+
     // Support both new structure (metadata + tables) and legacy structure
-    const hasProducts = Array.isArray(data.products);
-    const hasTransactions = Array.isArray(data.transactions);
+    const hasProducts = Array.isArray(payload.products);
+    const hasTransactions = Array.isArray(payload.transactions);
 
     if (!hasProducts && !hasTransactions) {
       return { 
@@ -133,14 +147,16 @@ export const backupService = {
     }
 
     const counts: BackupMetadata['counts'] = {
-      products: data.products?.length || 0,
-      transactions: data.transactions?.length || 0,
-      expenses: data.expenses?.length || 0,
-      shifts: data.shifts?.length || 0,
-      cashMovements: data.cashMovements?.length || 0,
-      bookingSheets: data.bookingSheets?.length || 0,
-      bookers: data.bookers?.length || 0,
-      settings: data.settings?.length || 0
+      products: Array.isArray(payload.products) ? payload.products.length : 0,
+      transactions: Array.isArray(payload.transactions) ? payload.transactions.length : 0,
+      expenses: Array.isArray(payload.expenses) ? payload.expenses.length : 0,
+      shifts: Array.isArray(payload.shifts) ? payload.shifts.length : 0,
+      cashMovements: Array.isArray(payload.cashMovements) ? payload.cashMovements.length : 0,
+      bookingSheets: Array.isArray(payload.bookingSheets) ? payload.bookingSheets.length : 0,
+      bookers: Array.isArray(payload.bookers) ? payload.bookers.length : 0,
+      customers: Array.isArray(payload.customers) ? payload.customers.length : 0,
+      customerLedgers: Array.isArray(payload.customerLedgers) ? payload.customerLedgers.length : 0,
+      settings: Array.isArray(payload.settings) ? payload.settings.length : 0
     };
 
     return { valid: true, counts };
@@ -150,7 +166,7 @@ export const backupService = {
    * Restores database from a verified payload inside an atomic Dexie transaction.
    * If any step fails, the transaction is rolled back and an emergency snapshot is preserved.
    */
-  async restoreBackup(payload: BackupPayload | any): Promise<{ success: boolean; message: string }> {
+  async restoreBackup(payload: BackupPayload): Promise<{ success: boolean; message: string }> {
     const validation = this.validateBackup(payload);
     if (!validation.valid) {
       throw new Error(validation.error || 'Invalid backup structure.');
@@ -242,7 +258,7 @@ export const backupService = {
           if (Array.isArray(payload.settings)) {
             await db.settings.clear();
             if (payload.settings.length > 0) {
-              await db.settings.bulkAdd(payload.settings);
+              await db.settings.bulkAdd(payload.settings as { key: string; value: any }[]);
             }
           }
         }
@@ -252,9 +268,10 @@ export const backupService = {
         success: true,
         message: `Successfully restored ${validation.counts?.products ?? 0} products, ${validation.counts?.transactions ?? 0} transactions, and ${validation.counts?.bookingSheets ?? 0} booking slips.`
       };
-    } catch (err: any) {
-      console.error('[BackupService] Restore failed:', err);
-      throw new Error(`Database restore failed: ${err.message || 'Unknown database error'}. Previous state was preserved in emergency snapshot.`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown database error';
+      console.error('[BackupService] Restore failed:', errMsg);
+      throw new Error(`Database restore failed: ${errMsg}. Previous state was preserved in emergency snapshot.`);
     }
   },
 
@@ -273,7 +290,10 @@ export const backupService = {
       hour12: true
     });
 
-    const totalRecords = Object.values(payload.metadata.counts).reduce((a, b) => a + b, 0);
+    const totalRecords = Object.values(payload.metadata.counts).reduce(
+      (a: number, b) => a + (typeof b === 'number' ? b : 0),
+      0
+    );
 
     const snapshot: SnapshotSummary = {
       id: `snap_${Date.now()}`,
@@ -294,7 +314,7 @@ export const backupService = {
     }
 
     // 2. If running under Electron, save snapshot to physical disk folder
-    const electronAPI = (window as any).electronAPI;
+    const electronAPI = window.electronAPI;
     if (electronAPI && typeof electronAPI.saveAutoSnapshot === 'function') {
       try {
         await electronAPI.saveAutoSnapshot(JSON.stringify(payload, null, 2), snapshot.id);
@@ -337,7 +357,7 @@ export const backupService = {
     const filename = `${filenamePrefix}_${dateTag}.json`;
     const jsonStr = JSON.stringify(payload, null, 2);
 
-    const electronAPI = (window as any).electronAPI;
+    const electronAPI = window.electronAPI;
     if (electronAPI && typeof electronAPI.saveBackupFile === 'function') {
       try {
         const res = await electronAPI.saveBackupFile(filename, jsonStr);
