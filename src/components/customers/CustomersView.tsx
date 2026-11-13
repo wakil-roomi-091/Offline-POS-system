@@ -448,9 +448,9 @@ export const CustomersView: React.FC = () => {
       {/* BEGIN: Header & Action Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2.5">
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
             <Users className="w-6 h-6 text-[#3FA9A8]" />
-            Customers &amp; Khata Ledger
+            <span>Customers &amp; Khata Ledger</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Customer credit lines, receivable accounts (Udhaar), running ledger records &amp; WhatsApp reminders.
@@ -462,94 +462,84 @@ export const CustomersView: React.FC = () => {
           <button
             type="button"
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-2xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl shadow-xs transition cursor-pointer"
             title="Download CSV spreadsheet of all customer receivables"
           >
             <Download className="w-4 h-4 text-slate-500" />
-            Export Khata CSV
+            <span>Export Khata CSV</span>
           </button>
 
           <button
             type="button"
             onClick={handleOpenAddCustomer}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#3FA9A8] hover:bg-[#359392] active:bg-[#2E807F] rounded-xl shadow-xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#3FA9A8] hover:bg-[#349695] active:bg-[#2A7978] rounded-xl shadow-sm hover:shadow transition-all cursor-pointer active:scale-98"
           >
             <UserPlus className="w-4 h-4" />
-            + Add New Customer
+            <span>Add New Customer</span>
           </button>
         </div>
       </div>
       {/* END: Header */}
 
       {/* BEGIN: KPI Stat Cards */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-purpose="metrics-summary">
         {/* Card 1: Total Receivables */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-500">
-              Total Receivables (Udhaar)
-            </span>
-            <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums font-mono">
-              Rs. {stats.totalReceivables.toLocaleString()}
+            <p className="text-xs font-medium text-slate-500">Total Receivables (Udhaar)</p>
+            <p className="text-xl font-bold text-slate-900 mt-1">Rs. {stats.totalReceivables.toLocaleString()}</p>
+            <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-1">
+              <span>Across {stats.accountsWithBalance} pending credit accounts</span>
             </div>
-            <p className="text-[10px] text-slate-400 mt-0.5">Across {stats.accountsWithBalance} pending credit accounts</p>
           </div>
           <div className="w-11 h-11 rounded-2xl bg-teal-50 text-[#3FA9A8] flex items-center justify-center font-bold">
-            <CreditCard className="w-5 h-5" />
+            <CreditCard className="w-6 h-6" />
           </div>
         </div>
 
         {/* Card 2: Recovered Payments */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-500">
-              Total Recovered to Date
-            </span>
-            <div className="text-2xl font-bold text-emerald-600 mt-1 tabular-nums font-mono">
-              Rs. {stats.totalRecovered.toLocaleString()}
+            <p className="text-xs font-medium text-slate-500">Total Recovered to Date</p>
+            <p className="text-xl font-bold text-emerald-600 mt-1">Rs. {stats.totalRecovered.toLocaleString()}</p>
+            <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-medium mt-1">
+              <span>Counter settlements &amp; bank transfers</span>
             </div>
-            <p className="text-[10px] text-slate-400 mt-0.5">Counter settlements &amp; bank transfers</p>
           </div>
           <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-            <ArrowDownLeft className="w-5 h-5" />
+            <ArrowDownLeft className="w-6 h-6" />
           </div>
         </div>
 
         {/* Card 3: Active Customer Accounts */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-500">
-              Total Customer Profiles
-            </span>
-            <div className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">
-              {stats.totalCustomers}
+            <p className="text-xs font-medium text-slate-500">Total Customer Profiles</p>
+            <p className="text-xl font-bold text-slate-900 mt-1">{stats.totalCustomers} Accounts</p>
+            <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-1">
+              <span>{stats.accountsWithBalance} active debit • {stats.totalCustomers - stats.accountsWithBalance} clear</span>
             </div>
-            <p className="text-[10px] text-slate-400 mt-0.5">
-              {stats.accountsWithBalance} active debit • {stats.totalCustomers - stats.accountsWithBalance} clear
-            </p>
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
-            <Users className="w-5 h-5" />
+          <div className="w-11 h-11 rounded-2xl bg-teal-50 text-[#3FA9A8] flex items-center justify-center font-bold">
+            <Users className="w-6 h-6" />
           </div>
         </div>
 
         {/* Card 4: Over-Limit / Blocked Alerts */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-500">
-              Over-Limit / Blocked
-            </span>
-            <div className={`text-2xl font-bold mt-1 tabular-nums ${stats.blockedCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-              {stats.blockedCount}
-            </div>
-            <p className="text-[10px] text-slate-400 mt-0.5">
-              {stats.blockedCount > 0 ? 'Requires supervisor clearance' : 'All accounts within credit limit'}
+            <p className="text-xs font-medium text-slate-500">Over-Limit / Blocked</p>
+            <p className={`text-xl font-bold mt-1 ${stats.blockedCount > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+              {stats.blockedCount} Accounts
             </p>
+            <div className={`flex items-center gap-1 text-[11px] font-medium mt-1 ${stats.blockedCount > 0 ? 'text-amber-700' : 'text-slate-500'}`}>
+              <span>{stats.blockedCount > 0 ? 'Requires supervisor clearance' : 'All accounts within credit limit'}</span>
+            </div>
           </div>
           <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold ${
-            stats.blockedCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-400'
+            stats.blockedCount > 0 ? 'bg-amber-50 text-amber-600' : 'bg-teal-50 text-[#3FA9A8]'
           }`}>
-            <AlertTriangle className="w-5 h-5" />
+            <AlertTriangle className="w-6 h-6" />
           </div>
         </div>
       </section>
