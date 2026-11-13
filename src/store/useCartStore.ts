@@ -5,8 +5,8 @@ interface CartState {
   cart: CartItem[];
   orderNote: string;
   taxRate: number;
-  addToCart: (product: Product, variation?: string, maxStock?: number) => boolean;
-  updateQty: (itemId: string, delta: number, maxStock?: number) => boolean;
+  addToCart: (product: Product, variation?: string, maxStock?: number, allowOverride?: boolean) => boolean;
+  updateQty: (itemId: string, delta: number, maxStock?: number, allowOverride?: boolean) => boolean;
   removeFromCart: (itemId: string) => void;
   clearCart: () => void;
   setOrderNote: (note: string) => void;
@@ -21,10 +21,9 @@ export const useCartStore = create<CartState>((set, get) => ({
   orderNote: '',
   taxRate: 0.08, // 8% tax
 
-  addToCart: (product: Product, variation?: string, maxStock?: number) => {
+  addToCart: (product: Product, variation?: string, maxStock?: number, allowOverride?: boolean) => {
     const stockLimit = maxStock !== undefined ? maxStock : (product.stock ?? 9999);
-    if (stockLimit <= 0) {
-      alert(`"${product.name}" is currently out of stock.`);
+    if (stockLimit <= 0 && !allowOverride) {
       return false;
     }
 
@@ -34,8 +33,7 @@ export const useCartStore = create<CartState>((set, get) => ({
         (item) => item.productId === product.id && item.variation === variation
       );
       if (existing) {
-        if (existing.qty >= stockLimit) {
-          alert(`Cannot add more. Available stock limit is ${stockLimit} units for "${product.name}".`);
+        if (existing.qty >= stockLimit && !allowOverride) {
           success = false;
           return state;
         }
@@ -59,13 +57,12 @@ export const useCartStore = create<CartState>((set, get) => ({
     return success;
   },
 
-  updateQty: (itemId: string, delta: number, maxStock?: number) => {
+  updateQty: (itemId: string, delta: number, maxStock?: number, allowOverride?: boolean) => {
     let success = true;
     set((state) => {
       const itemToUpdate = state.cart.find((i) => i.id === itemId);
-      if (itemToUpdate && delta > 0 && maxStock !== undefined) {
+      if (itemToUpdate && delta > 0 && maxStock !== undefined && !allowOverride) {
         if (itemToUpdate.qty >= maxStock) {
-          alert(`Cannot exceed available inventory of ${maxStock} units.`);
           success = false;
           return state;
         }

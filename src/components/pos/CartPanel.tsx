@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCartStore } from '../../store/useCartStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useSecurityStore } from '../../store/useSecurityStore';
 import { db } from '../../db';
+import type { Product } from '../../types';
 import { ShoppingBag, Trash2, Plus, Minus, FileText } from 'lucide-react';
+import { OutOfStockModal } from '../modals/OutOfStockModal';
 
 export const CartPanel: React.FC = () => {
   const { 
     cart, 
     updateQty, 
+    addToCart,
     removeFromCart, 
     clearCart, 
     getSubtotal, 
@@ -20,6 +23,10 @@ export const CartPanel: React.FC = () => {
   } = useCartStore();
   const { setPaymentModalOpen } = useUIStore();
   const { requestPinAuthorization } = useSecurityStore();
+
+  const [outOfStockProduct, setOutOfStockProduct] = useState<Product | null>(null);
+  const [showOutOfStockModal, setShowOutOfStockModal] = useState(false);
+  const [attemptedQty, setAttemptedQty] = useState(1);
 
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
 
@@ -37,7 +44,29 @@ export const CartPanel: React.FC = () => {
   const handleIncrement = (productId: string, itemId: string) => {
     const product = products.find(p => p.id === productId);
     const maxStock = product ? (product.stock ?? 9999) : 9999;
+    const currentItem = cart.find(i => i.id === itemId);
+    const nextQty = (currentItem?.qty || 0) + 1;
+
+    if (currentItem && nextQty > maxStock) {
+      if (product) {
+        setOutOfStockProduct(product);
+        setAttemptedQty(nextQty);
+        setShowOutOfStockModal(true);
+      }
+      return;
+    }
+
     updateQty(itemId, 1, maxStock);
+  };
+
+  const handleSupervisorOverride = (product: Product, itemId?: string) => {
+    requestPinAuthorization(`Authorize Selling Depleted "${product.name}"`, () => {
+      if (itemId) {
+        updateQty(itemId, 1, undefined, true);
+      } else {
+        addToCart(product, undefined, undefined, true);
+      }
+    });
   };
 
   return (
@@ -80,16 +109,27 @@ export const CartPanel: React.FC = () => {
             cart.map((item) => {
               const product = products.find(p => p.id === item.productId);
               const maxStock = product?.stock ?? 9999;
+              const isDepletedWarning = item.qty > maxStock;
 
               return (
                 <div key={item.id} className="py-2.5 flex items-center justify-between text-xs gap-2">
                   {/* Item Icon & Name */}
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-base shrink-0 border border-slate-200/70">
+                    <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-base shrink-0 border border-slate-200/70 relative">
                       {item.icon}
+                      {isDepletedWarning && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white" title="Stock exceeded" />
+                      )}
                     </div>
                     <div className="truncate">
-                      <div className="font-semibold text-slate-800 truncate">{item.name}</div>
+                      <div className="font-semibold text-slate-800 truncate flex items-center gap-1.5">
+                        <span>{item.name}</span>
+                        {isDepletedWarning && (
+                          <span className="text-[9px] font-bold bg-rose-100 text-rose-700 px-1 py-0.2 rounded">
+                            Exceeds Stock
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                         <span>Rs. {item.price.toLocaleString()}</span>
                         {item.variation && (
@@ -108,7 +148,9 @@ export const CartPanel: React.FC = () => {
                     >
                       <Minus className="w-3 h-3" />
                     </button>
-                    <span className="w-6 text-center text-xs font-bold text-slate-800">{item.qty}</span>
+                    <span className={`w-6 text-center text-xs font-bold ${isDepletedWarning ? 'text-rose-600' : 'text-slate-800'}`}>
+                      {item.qty}
+                    </span>
                     <button 
                       type="button"
                       onClick={() => handleIncrement(item.productId, item.id)} 
@@ -201,6 +243,20 @@ export const CartPanel: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Out of Stock & Inventory Lock Modal */}
+      <OutOfStockModal
+        product={outOfStockProduct}
+        isOpen={showOutOfStockModal}
+        onClose={() => {
+          setShowOutOfStockModal(false);
+          setOutOfStockProduct(null);
+        }}
+        requestedQty={attemptedQty}
+        onSupervisorOverride={
+          outOfStockProduct ? () => handleSupervisorOverride(outOfStockProduct) : undefined
+        }
+      />
     </div>
   );
 };

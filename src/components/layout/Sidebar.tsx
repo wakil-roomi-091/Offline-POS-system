@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../../db';
 import { useUIStore } from '../../store/useUIStore';
 import type { ActiveTab } from '../../types';
 
@@ -227,6 +229,12 @@ export const Sidebar: React.FC = () => {
   const isFleetActive = activeTab === 'order_bookers' || activeTab === 'order_booking';
   const [fleetExpanded, setFleetExpanded] = useState<boolean>(isFleetActive);
 
+  // Live count of low & out of stock products for retail badge
+  const lowStockCount = useLiveQuery(async () => {
+    const prods = await db.products.toArray();
+    return prods.filter(p => !p.isAvailable || (p.stock ?? 0) <= (p.lowStockThreshold ?? 10)).length;
+  }, []) || 0;
+
   return (
     <aside 
       className="w-[260px] min-w-[260px] bg-gradient-to-b from-[#3FA9A8] to-[#349695] text-white flex flex-col justify-between p-4 z-20 shadow-lg select-none font-sans overflow-y-auto"
@@ -254,6 +262,9 @@ export const Sidebar: React.FC = () => {
         <nav className="space-y-1">
           {RETAIL_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.id;
+            const badge = item.id === 'products' && lowStockCount > 0 ? `${lowStockCount} low` : item.badge;
+            const isAlertBadge = item.id === 'products' && lowStockCount > 0;
+
             return (
               <button
                 key={item.id}
@@ -266,15 +277,19 @@ export const Sidebar: React.FC = () => {
               >
                 {item.renderIcon(isActive)}
                 <span className="truncate">{item.label}</span>
-                {item.badge !== undefined && (
+                {badge !== undefined && (
                   <span
-                    className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      isActive
+                    className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded transition-all ${
+                      isAlertBadge
+                        ? isActive
+                          ? 'bg-rose-500 text-white font-extrabold shadow-xs'
+                          : 'bg-rose-500/90 text-white animate-pulse'
+                        : isActive
                         ? 'bg-[#3FA9A8]/15 text-[#3FA9A8]'
                         : 'bg-white/20 text-white'
                     }`}
                   >
-                    {item.badge}
+                    {badge}
                   </span>
                 )}
               </button>
